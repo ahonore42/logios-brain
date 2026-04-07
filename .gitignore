@@ -1,0 +1,46 @@
+# Environment and credentials
+.env
+*.env
+.env.*
+credentials.local
+credentials.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Test outputs
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Neo4j local data (if self-hosting)
+neo4j_data/
+
+# Qdrant local data (if self-hosting)
+qdrant_data/
