@@ -17,7 +17,7 @@ This is not a notes app. It is infrastructure.
 ## Architecture
 
 ```
-Your Machines (System76, laptop, Telegram bot)
+Your Machines (desktop, laptop, Telegram bot)
               │
               │  MCP over HTTP/SSE
               ▼
@@ -79,7 +79,7 @@ logios-brain/
 │   ├── 05-qdrant.md             # Qdrant Cloud setup and collection config
 │   ├── 06-gemini-embeddings.md  # Embedding integration
 │   ├── 07-skills-evidence.md    # Skills + evidence layer design and schema
-│   ├── 08-connecting-clients.md # Local machines, Exo, Telegram
+│   ├── 08-connecting-clients.md # Local machines, agent, Telegram
 │   └── 09-companion-prompts.md  # Prompts for memory migration and weekly review
 ├── server/
 │   ├── main.py                  # FastAPI MCP server entrypoint
@@ -129,7 +129,7 @@ Build in this sequence. Each step depends on the previous one being complete.
 5. **[MCP Server](docs/03-mcp-server.md)** — Deploy FastAPI server to Hetzner
 6. **[Embeddings](docs/06-gemini-embeddings.md)** — Wire Gemini into the server write path
 7. **[Skills + Evidence](docs/07-skills-evidence.md)** — Understand and seed the evidence layer
-8. **[Connect Clients](docs/08-connecting-clients.md)** — Connect System76, Exo, Telegram
+8. **[Connect Clients](docs/08-connecting-clients.md)** — Connect Computer, Slack, Telegram
 9. **[Companion Prompts](docs/09-companion-prompts.md)** — Seed your brain with existing context
 
 ---
