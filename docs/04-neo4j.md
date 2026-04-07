@@ -10,7 +10,7 @@ Neo4j runs locally on your Hetzner VPS in Docker as part of your Compose stack. 
 
 | Node label | What it represents | Example |
 |---|---|---|
-| `Project` | Active or past projects | Logios Brain, Subtrack, Exo |
+| `Project` | Active or past projects | Logios Brain |
 | `Concept` | Ideas, techniques, frameworks | MCP protocol, vector search, evidence layer |
 | `Person` | People you interact with | Names from captured memories |
 | `Session` | A discrete working session | A conversation, a build session |

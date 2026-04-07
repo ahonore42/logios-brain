@@ -97,7 +97,7 @@ Every Qdrant point stores a vector alongside a payload:
 ```json
 {
   "memory_id":  "uuid from PostgreSQL",
-  "source":     "telegram | claude | exo | manual | import | system",
+  "source":     "telegram | claude | manual | import | system",
   "session_id": "uuid or null"
 }
 ```

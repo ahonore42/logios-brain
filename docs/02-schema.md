@@ -58,7 +58,7 @@ create table memories (
   id           uuid primary key default gen_random_uuid(),
   content      text not null,
   source       text not null check (source in (
-                 'telegram', 'claude', 'exo', 'manual', 'import', 'system'
+                 'telegram', 'claude', 'agent', 'manual', 'import', 'system'
                )),
   session_id   uuid,
   captured_at  timestamptz not null default now(),

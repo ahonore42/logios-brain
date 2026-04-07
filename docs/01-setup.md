@@ -128,13 +128,13 @@ The Gemini embedding free tier supports 10 million tokens per minute. At persona
 
 ### Privacy note
 
-The free tier does log requests to improve Google's models. This is fine for non-sensitive personal knowledge base content. If you are embedding sensitive content (financial records, medical notes, etc.), either use the paid tier or switch to a self-hosted embedding model like `nomic-embed-text` via Ollama on your System76.
+The free tier does log requests to improve Google's models. This is fine for non-sensitive personal knowledge base content. If you are embedding sensitive content (financial records, medical notes, etc.), either use the paid tier or switch to a self-hosted embedding model like `nomic-embed-text` via Ollama on your local machine.
 
 ---
 
 ## 5. Hetzner VPS
 
-You already have this. What you need from it:
+What you need from it:
 
 ```
 HETZNER_IP=your.vps.ip.address

@@ -214,7 +214,7 @@ from dotenv import load_dotenv
 
 load_dotenv("/opt/logios-brain/.env")
 
-# Uses your local Ollama instance on the System76 if reachable,
+# Uses a local Ollama instance on a local machine if reachable,
 # falls back to a small model via any available local endpoint.
 # Adjust OLLAMA_URL to point to wherever your local models run.
 OLLAMA_URL  = os.getenv("OLLAMA_URL", "http://localhost:11434")
