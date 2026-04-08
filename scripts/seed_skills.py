@@ -5,7 +5,7 @@ Seeds the skills table with initial prompt templates.
 
 Run once after schema setup is complete and the server is running:
 
-    cd /opt/logios-brain
+    cd logios-brain
     source venv/bin/activate
     python3 scripts/seed_skills.py
 
@@ -16,13 +16,13 @@ skills will not be overwritten unless you change their name.
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
-
 from dotenv import load_dotenv
 
-load_dotenv("/opt/logios-brain/.env")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
-from db.postgres import execute
+from db.postgres import run_query
+
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 SKILLS = [
     {
@@ -175,17 +175,18 @@ def seed() -> None:
     skipped = 0
 
     for skill in SKILLS:
-        existing = execute(
+        # Check if skill already exists
+        existing = run_query(
             "SELECT id FROM skills WHERE name = %s",
             (skill["name"],),
         )
 
         if existing:
-            print(f"  skipped  {skill['name']} (already exists)")
+            print(f"  [skip] {skill['name']} (already exists)")
             skipped += 1
             continue
 
-        execute(
+        run_query(
             """
             INSERT INTO skills (name, description, prompt_template)
             VALUES (%s, %s, %s)
@@ -193,7 +194,7 @@ def seed() -> None:
             (skill["name"], skill["description"], skill["prompt_template"]),
             fetch=False,
         )
-        print(f"  seeded   {skill['name']}")
+        print(f"  [seed] {skill['name']}")
         seeded += 1
 
     print(f"\nDone. {seeded} seeded, {skipped} already existed.")
