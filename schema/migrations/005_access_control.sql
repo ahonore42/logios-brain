@@ -1,0 +1,22 @@
+-- ============================================================
+-- MIGRATION 005: Access control
+-- Local PostgreSQL does not use Supabase's Row Level Security.
+-- Access control is handled at the infrastructure level:
+-- the `logios` database user is the only application user,
+-- and the PostgreSQL port is bound to 127.0.0.1 only in Docker Compose.
+-- No external access is possible.
+-- ============================================================
+
+-- Verify ownership is correct:
+-- select tablename, tableowner
+-- from pg_tables
+-- where schemaname = 'public'
+-- order by tablename;
+-- All tables should show tableowner = logios.
+
+-- Optional: read-only user for dashboards
+-- create user logios_readonly with password 'your_generated_password';
+-- grant connect on database logios_brain to logios_readonly;
+-- grant usage on schema public to logios_readonly;
+-- grant select on all tables in schema public to logios_readonly;
+-- alter default privileges in schema public grant select on tables to logios_readonly;
