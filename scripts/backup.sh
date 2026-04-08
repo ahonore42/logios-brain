@@ -1,11 +1,11 @@
 #!/bin/bash
-# backup.sh — backs up all three stores to /opt/logios-brain/backups/
+# backup.sh — backs up all three stores to $HOME/logios-brain/backups/
 # Safe to run from cron. Neo4j will be briefly unavailable during its dump.
 
 set -euo pipefail
 
-BACKUP_DIR="/opt/logios-brain/backups"
-COMPOSE="/opt/logios-brain/docker-compose.yml"
+BACKUP_DIR="$HOME/logios-brain/backups"
+COMPOSE="$HOME/logios-brain/docker-compose.yml"
 DATE=$(date +%Y%m%d_%H%M%S)
 LOG="${BACKUP_DIR}/backup.log"
 
