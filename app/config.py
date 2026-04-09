@@ -25,13 +25,11 @@ NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
 
-# ── Gemini ───────────────────────────────────────────────────────────────────
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# ── Embeddings (NVIDIA NIM) ───────────────────────────────────────────────────
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+EMBEDDING_MODEL = "nvidia/nv-embed-v1"
+EMBEDDING_DIM = 4096
 
 # ── MCP Server ───────────────────────────────────────────────────────────────
 MCP_ACCESS_KEY = os.getenv("MCP_ACCESS_KEY", "")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
-
-# ── Ollama ───────────────────────────────────────────────────────────────────
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-ENTITY_MODEL = os.getenv("ENTITY_MODEL", "mistral:7b")

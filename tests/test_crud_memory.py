@@ -1,12 +1,25 @@
-"""Tests for memory routes."""
-
+"""Tests for memory routes including Postgres + Qdrant write path."""
 import pytest
 import pytest_asyncio
 from uuid import uuid4
 
 from app.routes.memory import _upsert_memory
+from app.db import qdrant as qdrant_db
 from app.schemas import RememberRequest
 from app.database import get_db
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_qdrant_collection():
+    """Ensure Qdrant collection exists with correct 4096 dimension before tests."""
+    client = qdrant_db.get_qdrant()
+    try:
+        client.delete_collection(qdrant_db.COLLECTION_NAME)
+    except Exception:
+        pass
+    qdrant_db.ensure_collection()
+    yield
+    # No cleanup needed
 
 
 @pytest_asyncio.fixture

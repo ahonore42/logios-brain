@@ -1,76 +1,73 @@
 """
 app/embeddings.py
 
-Gemini embedding calls for text-embedding-004.
-Uses retrieval_document for storing, retrieval_query for searching.
-Retries on 429 with exponential backoff.
-All embedding calls run in a thread pool to avoid blocking the asyncio event loop.
+NVIDIA NIM API embeddings via httpx async client.
+Uses nvidia/nv-embed-v1 at 4096 dimensions.
 """
 
-from __future__ import annotations
-
-import asyncio
-import time
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from google.genai import Client
+import httpx
 
 from app import config
 
-MODEL = "models/text-embedding-004"
-
-_client: Client | None = None
-
-
-def _get_client() -> Client:
-    global _client
-    if _client is None:
-        from google import genai
-
-        _client = genai.Client(api_key=config.GEMINI_API_KEY)
-    return _client
+EMBEDDING_URL = "https://integrate.api.nvidia.com/v1/embeddings"
+MODEL = config.EMBEDDING_MODEL
+DIM = config.EMBEDDING_DIM
 
 
 async def embed(text: str, retries: int = 3) -> list[float]:
     """
-    Embed a single text string for storage (retrieval_document task type).
-    Runs in a thread pool to avoid blocking the event loop.
-    Retries with exponential backoff on rate limit errors.
+    Embed a text string for storage (retrieval_document / passage).
+    Uses NVIDIA NIM API. Runs fully on the provider's GPU servers.
     """
-
-    async def _sync_call():
-        for attempt in range(retries):
-            try:
-                result = _get_client().models.embed_content(
-                    model=MODEL,
-                    content=text,
-                    task_type="retrieval_document",
+    for attempt in range(retries):
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    EMBEDDING_URL,
+                    json={
+                        "input": [text],
+                        "model": MODEL,
+                        "input_type": "passage",
+                        "encoding_format": "float",
+                        "truncate": "NONE",
+                    },
+                    headers={
+                        "Authorization": f"Bearer {config.NVIDIA_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
                 )
-                return result.embeddings[0].values
-            except Exception as exc:
-                if "429" in str(exc) and attempt < retries - 1:
-                    wait = 2**attempt
-                    time.sleep(wait)
-                    continue
-                raise
-        raise RuntimeError(f"Embedding failed after {retries} attempts")
-
-    return await asyncio.to_thread(_sync_call)
+                response.raise_for_status()
+                data = response.json()
+                return data["data"][0]["embedding"]
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429 and attempt < retries - 1:
+                import time
+                time.sleep(2 ** attempt)
+                continue
+            raise
+    raise RuntimeError(f"Embedding failed after {retries} attempts")
 
 
 async def embed_query(text: str) -> list[float]:
     """
-    Embed a query string (retrieval_query task type for better recall).
-    Runs in a thread pool to avoid blocking the event loop.
+    Embed a query string (retrieval_query / query).
+    Uses NVIDIA NIM API for better recall on search queries.
     """
-
-    async def _sync_call():
-        result = _get_client().models.embed_content(
-            model=MODEL,
-            content=text,
-            task_type="retrieval_query",
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            EMBEDDING_URL,
+            json={
+                "input": [text],
+                "model": MODEL,
+                "input_type": "query",
+                "encoding_format": "float",
+                "truncate": "NONE",
+            },
+            headers={
+                "Authorization": f"Bearer {config.NVIDIA_API_KEY}",
+                "Content-Type": "application/json",
+            },
         )
-        return result.embeddings[0].values
-
-    return await asyncio.to_thread(_sync_call)
+        response.raise_for_status()
+        data = response.json()
+        return data["data"][0]["embedding"]
