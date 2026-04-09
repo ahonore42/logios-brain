@@ -1,5 +1,5 @@
 """
-server/entity_extraction.py
+app/entity_extraction.py
 
 Entity extraction via local Ollama. Extracts named entities and relationships
 from memory text and returns them as a list of entity dicts ready for Neo4j.
@@ -12,7 +12,7 @@ import json
 
 import httpx
 
-import config
+from app import config
 
 SYSTEM_PROMPT = """
 You are an entity extraction assistant. Given a text, extract named entities
@@ -35,28 +35,29 @@ If there are no entities, return: {"entities": []}
 """.strip()
 
 
-def extract_entities(text: str) -> list[dict]:
+async def extract_entities(text: str) -> list[dict]:
     """
     Call local Ollama to extract entities from a memory text.
     Returns a list of entity dicts ready to write to Neo4j.
+    Uses httpx async client to avoid blocking the event loop.
     """
     try:
-        response = httpx.post(
-            f"{config.OLLAMA_URL}/api/chat",
-            json={
-                "model": config.ENTITY_MODEL,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Extract entities from:\n\n{text}"},
-                ],
-                "stream": False,
-            },
-            timeout=30.0,
-        )
-        response.raise_for_status()
-        content = response.json()["message"]["content"]
-        parsed = json.loads(content)
-        return parsed.get("entities", [])
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{config.OLLAMA_URL}/api/chat",
+                json={
+                    "model": config.ENTITY_MODEL,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": f"Extract entities from:\n\n{text}"},
+                    ],
+                    "stream": False,
+                },
+            )
+            response.raise_for_status()
+            content = response.json()["message"]["content"]
+            parsed = json.loads(content)
+            return parsed.get("entities", [])
     except Exception:
         # Entity extraction is best-effort — never block a memory write
         return []

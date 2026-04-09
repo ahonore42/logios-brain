@@ -18,7 +18,7 @@ import sys
 
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
 from db.postgres import run_query
 

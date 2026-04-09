@@ -92,21 +92,19 @@ docker compose exec postgres psql -U logios -d logios_brain -f /schema/migration
 ### 4. Set up Python and start the server
 
 ```bash
-cd server
-python3.11 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-PYTHONPATH=. uvicorn main:app --port 8000 &
+uv sync
+source .venv/bin/activate
+uvicorn server.main:app --port 8000 &
 ```
 
 ### 5. Seed skills and test
 
 ```bash
 # Seed the six skill templates
-python ../scripts/seed_skills.py
+python scripts/seed_skills.py
 
 # Run connectivity tests (PostgreSQL, Qdrant, Neo4j, embeddings)
-python ../scripts/test_connection.py
+python scripts/test_connection.py
 ```
 
 ---
@@ -137,6 +135,22 @@ Tool list:
 
 ```bash
 curl -H "X-Brain-Key: YOUR_KEY" http://localhost:8000/mcp/tools
+```
+
+---
+
+## Security
+
+PostgreSQL is bound to `127.0.0.1` only — no external network access. The `logios` database user is the sole application user with full access to the `logios_brain` database.
+
+For dashboards or read-only access, create a separate user:
+
+```sql
+create user logios_readonly with password 'your_generated_password';
+grant connect on database logios_brain to logios_readonly;
+grant usage on schema public to logios_readonly;
+grant select on all tables in schema public to logios_readonly;
+alter default privileges in schema public grant select on tables to logios_readonly;
 ```
 
 ---

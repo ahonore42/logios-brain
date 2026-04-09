@@ -12,31 +12,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
 
-      - name: Install dependencies
-        run: pip install -r server/requirements.txt
+      - name: Set up Python and install dependencies
+        run: uv sync
 
       - name: Lint with ruff
         run: |
-          pip install ruff
-          ruff format server/ scripts/
-          ruff check server/ scripts/ --fix
+          uv run ruff format server/ scripts/
+          uv run ruff check server/ scripts/ --fix
 
       - name: Type check with mypy
         run: |
-          pip install mypy
-          mypy server/ --ignore-missing-imports
+          uv run pip install mypy
+          uv run mypy server/ --ignore-missing-imports
 
       - name: Test import chain
-        run: python -c "from server.main import app"
+        run: uv run python -c "from server.main import app"
 
       - name: Verify no missing imports in tools
         run: |
-          python -c "
+          uv run python -c "
 from server.db import postgres, supabase, qdrant, neo4j_client
 from server import embeddings, entity_extraction
 from server.tools import remember, search, relate, run_skill, get_evidence

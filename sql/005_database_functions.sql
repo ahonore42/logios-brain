@@ -1,5 +1,5 @@
 -- ============================================================
--- MIGRATION 006: Database functions
+-- MIGRATION 005: Database functions
 -- ============================================================
 
 -- upsert_memory: deduplication-safe insert

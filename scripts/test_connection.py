@@ -12,7 +12,7 @@ Run from the project root after server is installed:
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
 from dotenv import load_dotenv
 
