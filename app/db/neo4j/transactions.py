@@ -6,13 +6,18 @@ from app.db.neo4j.nodes import MemoryChunk, Event, Fact
 def write_memory_chunk(
     chunk: MemoryChunk,
     session_id: str | None = None,
+    event_id: str | None = None,
+    event_type: str | None = None,
+    event_description: str | None = None,
     timeout: float | None = None,
 ) -> None:
     """
     Write a MemoryChunk node and optionally link to a Session atomically.
 
-    Uses a session transaction so both the node and session link are
-    committed together or rolled back together.
+    If event_id is provided, also creates an Event node and links it to the
+    MemoryChunk via [:DESCRIBES], representing the memory-ingestion event.
+
+    Uses a session transaction so all nodes and links are committed together.
     """
     driver = get_driver()
     with driver.session() as session:
@@ -45,6 +50,33 @@ def write_memory_chunk(
                     """,
                     session_id=session_id,
                     id=chunk.id,
+                )
+
+            if event_id:
+                tx.run(
+                    """
+                    MERGE (e:Event {id: $event_id})
+                    SET e.tenant_id = $tenant_id,
+                        e.agent_id = $agent_id,
+                        e.type = $event_type,
+                        e.description = $event_description,
+                        e.timestamp_utc = $timestamp_utc
+                    """,
+                    event_id=event_id,
+                    tenant_id=chunk.tenant_id,
+                    agent_id=None,
+                    event_type=event_type or chunk.type,
+                    event_description=event_description or f"Memory captured: {chunk.type}",
+                    timestamp_utc=chunk.timestamp_utc,
+                )
+                tx.run(
+                    """
+                    MERGE (e:Event {id: $event_id})
+                    MERGE (m:MemoryChunk {id: $chunk_id})
+                    MERGE (e)-[:DESCRIBES]->(m)
+                    """,
+                    event_id=event_id,
+                    chunk_id=chunk.id,
                 )
             tx.commit()
 

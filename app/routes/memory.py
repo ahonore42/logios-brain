@@ -95,6 +95,7 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
     memory = (await db.execute(stmt)).scalar_one()
 
     # 5. Neo4j: store MemoryChunk node and link to session if present
+    #    Also create an Event node representing the memory-ingestion event.
     chunk_node = MemoryChunk(
         id=prefixed_id(NodeId.MEMORY_CHUNK, str(memory_id)),
         tenant_id=config.TENANT_ID,
@@ -104,9 +105,13 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
         importance=data.metadata.get("importance", 0.5),
         confidence=data.metadata.get("confidence", 1.0),
     )
+    event_id = prefixed_id(NodeId.EVENT, str(uuid.uuid4()))
     write_memory_chunk(
         chunk=chunk_node,
         session_id=str(data.session_id) if data.session_id else None,
+        event_id=event_id,
+        event_type=data.source,
+        event_description=f"Memory captured: {data.source}",
     )
 
     return MemoryOut(

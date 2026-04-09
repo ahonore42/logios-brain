@@ -44,7 +44,13 @@ async def test_write_memory_chunk_creates_node():
         importance=0.7,
         confidence=0.95,
     )
-    write_memory_chunk(chunk=chunk)
+    event_id = prefixed_id(NodeId.EVENT, str(uuid4()))
+    write_memory_chunk(
+        chunk=chunk,
+        event_id=event_id,
+        event_type="manual",
+        event_description="Memory captured: manual",
+    )
 
     from app.db.neo4j import get_driver
 
@@ -59,6 +65,19 @@ async def test_write_memory_chunk_creates_node():
         assert record["type"] == "manual"
         assert record["importance"] == 0.7
 
+        # Verify Event node was created and linked via DESCRIBES
+        ev = session.run(
+            """
+            MATCH (e:Event {id: $eid})-[:DESCRIBES]->(m:MemoryChunk {id: $mid})
+            RETURN e.type as event_type, e.description as description
+            """,
+            eid=event_id,
+            mid=chunk.id,
+        ).single()
+        assert ev is not None
+        assert ev["event_type"] == "manual"
+        assert ev["description"] == "Memory captured: manual"
+
 
 @pytest.mark.asyncio
 async def test_write_memory_chunk_with_session():
@@ -70,7 +89,8 @@ async def test_write_memory_chunk_with_session():
         type="telegram",
     )
     session_id = str(uuid4())
-    write_memory_chunk(chunk=chunk, session_id=session_id)
+    event_id = prefixed_id(NodeId.EVENT, str(uuid4()))
+    write_memory_chunk(chunk=chunk, session_id=session_id, event_id=event_id, event_type="telegram", event_description="Memory captured: telegram")
 
     from app.db.neo4j import get_driver
 
@@ -98,8 +118,9 @@ async def test_write_memory_chunk_is_idempotent():
         timestamp_utc="2024-01-01T00:00:00Z",
         type="manual",
     )
-    write_memory_chunk(chunk=chunk)
-    write_memory_chunk(chunk=chunk)  # second write
+    event_id = prefixed_id(NodeId.EVENT, str(uuid4()))
+    write_memory_chunk(chunk=chunk, event_id=event_id, event_type="manual", event_description="Memory captured: manual")
+    write_memory_chunk(chunk=chunk)  # second write — MemoryChunk is MERGE, stays idempotent
 
     from app.db.neo4j import get_driver
 
