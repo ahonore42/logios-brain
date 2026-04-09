@@ -10,6 +10,7 @@ class MemoryChunk:
     timestamp_utc: str
     type: str  # "conversation", "decision", "event", "fact-summary"
     qdrant_id: str | None = None  # cross-reference to vector store
+    revoked: bool = False  # soft-deletion — filters apply at traversal time
     version: int = 1
     importance: float = 0.5
     confidence: float = 1.0

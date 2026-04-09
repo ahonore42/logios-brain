@@ -29,6 +29,7 @@ def write_memory_chunk(
                     m.timestamp_utc = $timestamp_utc,
                     m.type = $type,
                     m.qdrant_id = $qdrant_id,
+                    m.revoked = $revoked,
                     m.version = $version,
                     m.importance = $importance,
                     m.confidence = $confidence
@@ -38,6 +39,7 @@ def write_memory_chunk(
                 timestamp_utc=chunk.timestamp_utc,
                 type=chunk.type,
                 qdrant_id=chunk.qdrant_id,
+                revoked=chunk.revoked,
                 version=chunk.version,
                 importance=chunk.importance,
                 confidence=chunk.confidence,

@@ -79,6 +79,23 @@ class MemoryOut(BaseModel):
     content_fingerprint: Optional[str] = None
 
 
+class FactOut(BaseModel):
+    """A Fact node from Neo4j, resolved through its REPLACES chain."""
+
+    id: str  # prefixed: "fact:<uuid>"
+    content: str
+    valid_from: datetime
+    valid_until: Optional[datetime] = None
+    version: int = 1
+
+
+class GraphTraversalResult(BaseModel):
+    """Combined result of a graph traversal — reachable memories and resolved facts."""
+
+    memories: list[MemoryOut]
+    facts: list[FactOut]
+
+
 class ChunkOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -61,6 +61,7 @@ def task_upsert_neo4j(
             timestamp_utc=chunk_node["timestamp_utc"],
             type=chunk_node["type"],
             qdrant_id=qdrant_id,
+            revoked=chunk_node.get("revoked", False),
             version=chunk_node["version"],
             importance=chunk_node["importance"],
             confidence=chunk_node["confidence"],

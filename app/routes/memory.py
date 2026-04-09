@@ -85,6 +85,7 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
         "tenant_id": config.TENANT_ID,
         "timestamp_utc": str(memory.captured_at),
         "type": data.source,
+        "revoked": data.metadata.get("revoked", False),
         "version": 1,
         "importance": data.metadata.get("importance", 0.5),
         "confidence": data.metadata.get("confidence", 1.0),
