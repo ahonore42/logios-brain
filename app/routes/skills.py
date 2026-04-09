@@ -57,6 +57,7 @@ async def _record_generation(
 
     from app import config
     from app.db.neo4j import create_evidence_path, add_evidence_step, link_evidence_to_output
+    from app.db.neo4j.client import prefixed_id, NodeId
 
     skill = await _get_or_create_skill(db, data.skill_name)
 
@@ -91,7 +92,7 @@ async def _record_generation(
 
     # Extract memory IDs and edge types from evidence manifest for Neo4j
     used_memory_ids = [
-        item["memory_id"]
+        prefixed_id(NodeId.MEMORY_CHUNK, item["memory_id"])
         for item in data.evidence_manifest
         if item.get("memory_id")
     ]
@@ -109,8 +110,8 @@ async def _record_generation(
 
     # Write evidence path to Neo4j
     create_evidence_path(
-        evidence_path_id=str(generation.id),
-        output_id=str(generation.id),
+        evidence_path_id=prefixed_id(NodeId.EVIDENCE_PATH, str(generation.id)),
+        output_id=prefixed_id(NodeId.OUTPUT, str(generation.id)),
         tenant_id=config.TENANT_ID,
         agent_id=None,
         query_hash=query_hash,
@@ -129,9 +130,9 @@ async def _record_generation(
     ]
     prev_step_id = None
     for step_type, order in step_types:
-        step_id = str(uuid4())
+        step_id = prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4()))
         add_evidence_step(
-            evidence_path_id=str(generation.id),
+            evidence_path_id=prefixed_id(NodeId.EVIDENCE_PATH, str(generation.id)),
             step_id=step_id,
             step_type=step_type,
             order=order,
@@ -141,8 +142,8 @@ async def _record_generation(
 
     # Link evidence path to output node
     link_evidence_to_output(
-        evidence_path_id=str(generation.id),
-        output_id=str(generation.id),
+        evidence_path_id=prefixed_id(NodeId.EVIDENCE_PATH, str(generation.id)),
+        output_id=prefixed_id(NodeId.OUTPUT, str(generation.id)),
         agent_id=None,
         tenant_id=config.TENANT_ID,
     )

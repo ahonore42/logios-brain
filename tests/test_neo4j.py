@@ -20,6 +20,7 @@ from app.db.neo4j import (
     ensure_indexes,
     # AgentNode, OutputNode, EvidencePath  # TODO: needed for future evidence layer tests
 )
+from app.db.neo4j.client import prefixed_id, NodeId
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -35,7 +36,7 @@ def setup_indexes():
 async def test_write_memory_chunk_creates_node():
     """MemoryChunk node should be created with all properties."""
     chunk = MemoryChunk(
-        id=str(uuid4()),
+        id=prefixed_id(NodeId.MEMORY_CHUNK, str(uuid4())),
         tenant_id="test-tenant",
         timestamp_utc="2024-01-01T00:00:00Z",
         type="manual",
@@ -63,7 +64,7 @@ async def test_write_memory_chunk_creates_node():
 async def test_write_memory_chunk_with_session():
     """MemoryChunk with session_id should create IN_SESSION relationship."""
     chunk = MemoryChunk(
-        id=str(uuid4()),
+        id=prefixed_id(NodeId.MEMORY_CHUNK, str(uuid4())),
         tenant_id="test-tenant",
         timestamp_utc="2024-01-01T00:00:00Z",
         type="telegram",
@@ -92,7 +93,7 @@ async def test_write_memory_chunk_with_session():
 async def test_write_memory_chunk_is_idempotent():
     """Writing same MemoryChunk twice should not duplicate the node."""
     chunk = MemoryChunk(
-        id=str(uuid4()),
+        id=prefixed_id(NodeId.MEMORY_CHUNK, str(uuid4())),
         tenant_id="test-tenant",
         timestamp_utc="2024-01-01T00:00:00Z",
         type="manual",
@@ -115,9 +116,9 @@ async def test_write_memory_chunk_is_idempotent():
 async def test_write_event_creates_node():
     """Event node should be created and linked to a DateNode."""
     event = Event(
-        id=str(uuid4()),
+        id=prefixed_id(NodeId.EVENT, str(uuid4())),
         tenant_id="test-tenant",
-        agent_id=str(uuid4()),
+        agent_id=prefixed_id(NodeId.AGENT, str(uuid4())),
         type="meeting",
         description="Quarterly planning session",
         timestamp_utc="2024-06-15T10:00:00Z",
@@ -144,7 +145,7 @@ async def test_write_event_creates_node():
 async def test_write_event_links_to_date():
     """Event should be linked to DateNode via OCCURRED_ON."""
     event = Event(
-        id=str(uuid4()),
+        id=prefixed_id(NodeId.EVENT, str(uuid4())),
         tenant_id="test-tenant",
         agent_id=None,
         type="decision",
@@ -173,7 +174,7 @@ async def test_write_event_links_to_date():
 async def test_write_fact_creates_node():
     """Fact node should be created with DERIVED_FROM links."""
     source_chunk = MemoryChunk(
-        id=str(uuid4()),
+        id=prefixed_id(NodeId.MEMORY_CHUNK, str(uuid4())),
         tenant_id="test-tenant",
         timestamp_utc="2024-01-01T00:00:00Z",
         type="conversation",
@@ -181,7 +182,7 @@ async def test_write_fact_creates_node():
     write_memory_chunk(chunk=source_chunk)
 
     fact = Fact(
-        id=str(uuid4()),
+        id=prefixed_id(NodeId.FACT, str(uuid4())),
         tenant_id="test-tenant",
         content="Client prefers tiered pricing",
         valid_from="2024-01-01T00:00:00Z",
@@ -211,15 +212,15 @@ async def test_create_evidence_path():
     """EvidencePath should be created with USED and FOLLOWED links."""
     # Create a memory chunk first
     chunk = MemoryChunk(
-        id=str(uuid4()),
+        id=prefixed_id(NodeId.MEMORY_CHUNK, str(uuid4())),
         tenant_id="test-tenant",
         timestamp_utc="2024-01-01T00:00:00Z",
         type="manual",
     )
     write_memory_chunk(chunk=chunk)
 
-    evidence_path_id = str(uuid4())
-    output_id = str(uuid4())
+    evidence_path_id = prefixed_id(NodeId.EVIDENCE_PATH, str(uuid4()))
+    output_id = prefixed_id(NodeId.OUTPUT, str(uuid4()))
     timestamp = "2024-06-15T12:00:00Z"
     query_hash = hashlib.sha256(b"test query").hexdigest()
 
@@ -273,11 +274,11 @@ async def test_create_evidence_path():
 @pytest.mark.asyncio
 async def test_add_evidence_step():
     """EvidenceStep should be created and linked with NEXT chain."""
-    evidence_path_id = str(uuid4())
+    evidence_path_id = prefixed_id(NodeId.EVIDENCE_PATH, str(uuid4()))
 
-    step1 = EvidenceStep(id=str(uuid4()), step_type="read_memory", order=0)
-    step2 = EvidenceStep(id=str(uuid4()), step_type="merge_context", order=1)
-    step3 = EvidenceStep(id=str(uuid4()), step_type="generate_output", order=2)
+    step1 = EvidenceStep(id=prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4())), step_type="read_memory", order=0)
+    step2 = EvidenceStep(id=prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4())), step_type="merge_context", order=1)
+    step3 = EvidenceStep(id=prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4())), step_type="generate_output", order=2)
 
     add_evidence_step(evidence_path_id=evidence_path_id, step_id=step1.id, step_type=step1.step_type, order=step1.order)
     add_evidence_step(evidence_path_id=evidence_path_id, step_id=step2.id, step_type=step2.step_type, order=step2.order, prev_step_id=step1.id)
@@ -309,7 +310,7 @@ async def test_link_evidence_to_output():
     driver = get_driver()
 
     # Create an Output node first
-    output_id = str(uuid4())
+    output_id = prefixed_id(NodeId.OUTPUT, str(uuid4()))
     with driver.session() as session:
         session.run(
             "MERGE (o:Output {id: $id}) SET o.tenant_id = $tid, o.type = $type, o.timestamp = $ts",
@@ -320,7 +321,7 @@ async def test_link_evidence_to_output():
         )
 
     # Create an Agent node
-    agent_id = str(uuid4())
+    agent_id = prefixed_id(NodeId.AGENT, str(uuid4()))
     with driver.session() as session:
         session.run(
             "MERGE (a:Agent {id: $id}) SET a.tenant_id = $tid, a.name = $name, a.role = $role",
@@ -330,7 +331,7 @@ async def test_link_evidence_to_output():
             role="planner",
         )
 
-    evidence_path_id = str(uuid4())
+    evidence_path_id = prefixed_id(NodeId.EVIDENCE_PATH, str(uuid4()))
     link_evidence_to_output(
         evidence_path_id=evidence_path_id,
         output_id=output_id,

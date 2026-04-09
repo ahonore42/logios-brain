@@ -1,4 +1,6 @@
 """Neo4j driver management and index creation."""
+from enum import Enum
+
 from neo4j import GraphDatabase
 
 from app import config
@@ -6,6 +8,23 @@ from app import config
 _driver = None
 
 DEFAULT_TIMEOUT = 30.0
+
+
+class NodeId(str, Enum):
+    """Prefixes for all Neo4j node IDs — use prefixed_id() to generate them."""
+
+    MEMORY_CHUNK = "memc"
+    EVENT = "evt"
+    FACT = "fact"
+    EVIDENCE_PATH = "ep"
+    EVIDENCE_STEP = "es"
+    OUTPUT = "out"
+    AGENT = "agt"
+
+
+def prefixed_id(node_type: NodeId, uuid: str) -> str:
+    """Return a prefixed node ID string: '<prefix>:<uuid>'."""
+    return f"{node_type.value}:{uuid}"
 
 
 def get_driver():

@@ -12,6 +12,7 @@ from sqlalchemy.types import JSON
 from app import embeddings
 from app import config
 from app.db.neo4j import write_memory_chunk, MemoryChunk
+from app.db.neo4j.client import prefixed_id, NodeId
 from app.db import qdrant as qdrant_db
 from app.database import get_db
 from app.dependencies import verify_key
@@ -95,7 +96,7 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
 
     # 5. Neo4j: store MemoryChunk node and link to session if present
     chunk_node = MemoryChunk(
-        id=str(memory_id),
+        id=prefixed_id(NodeId.MEMORY_CHUNK, str(memory_id)),
         tenant_id=config.TENANT_ID,
         timestamp_utc=str(memory.captured_at),
         type=data.source,
