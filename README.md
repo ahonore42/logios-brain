@@ -12,6 +12,21 @@ Logios Brain captures every memory you store and makes it searchable by semantic
 
 When you run a skill (e.g. weekly review, competitive analysis, memory migration), Logios builds an evidence manifest before the AI produces output. The receipt is stored alongside the output so you can trace it later.
 
+
+The server is the front door. When an AI wants to remember something or look something up, it knocks on this door.
+
+Behind that door are three helpers, each with one job:
+- PostgreSQL is the filing cabinet. Every single thing that ever gets remembered goes in here first. It never forgets and never loses anything.
+- Qdrant is the "find me something similar" helper. It turns memories into numbers so it can ask "what else did we capture that feels like this?" — even if the exact words are different. It needs the NVIDIA API to do the number-crunching, which is why there's a free API call happening there.
+- Neo4j is the map maker. It doesn't just store memories — it draws lines between them. "This project connects to this concept, which came up in that session." It's what lets you ask why things are related, not just what exists.
+
+The evidence layer at the bottom is the most important piece. Every time an AI produces something — an analysis, a plan, a summary — it doesn't just hand you the answer. It staples a receipt to it: here are the 5 memories I read, here's which connection in Neo4j I followed, here's which model produced this, at this time, on this machine. Six months later you can look back at any output and know exactly what the system was thinking.
+A concrete example of what each does:
+You capture a memory: "met with client about pricing strategy"
+
+NVIDIA reads that sentence and returns a list of ~3000 numbers that mathematically represent its meaning. It then forgets it ever existed — it has no memory between calls.
+Qdrant stores those numbers permanently, tagged with your memory_id. Later when you ask "what do I know about client negotiations?", Qdrant compares the numbers for that query against every stored memory and returns the closest matches — without NVIDIA being involved at all in the search.
+
 ---
 
 ## Architecture
