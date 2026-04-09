@@ -1,10 +1,10 @@
-"""Tests for app/crud/memory.py"""
+"""Tests for memory routes."""
 
 import pytest
 import pytest_asyncio
 from uuid import uuid4
 
-from app.crud.memory import upsert_memory, get_memories_by_ids
+from app.routes.memory import _upsert_memory
 from app.schemas import RememberRequest
 from app.database import get_db
 
@@ -22,7 +22,7 @@ async def test_upsert_memory_inserts_and_returns_memory(db_session):
         source="manual",
         metadata={"test": True},
     )
-    result = await upsert_memory(db_session, req)
+    result = await _upsert_memory(db_session, req)
 
     assert result.id is not None
     assert result.content == req.content
@@ -35,16 +35,10 @@ async def test_upsert_memory_deduplication(db_session):
     req1 = RememberRequest(content=content, source="manual", metadata={})
     req2 = RememberRequest(content=content, source="telegram", metadata={})
 
-    result1 = await upsert_memory(db_session, req1)
-    result2 = await upsert_memory(db_session, req2)
+    result1 = await _upsert_memory(db_session, req1)
+    result2 = await _upsert_memory(db_session, req2)
 
     assert result1.id == result2.id
-
-
-@pytest.mark.asyncio
-async def test_get_memories_by_ids_returns_empty_for_empty_list(db_session):
-    result = await get_memories_by_ids(db_session, [])
-    assert result == {}
 
 
 @pytest.mark.asyncio
@@ -56,7 +50,6 @@ async def test_upsert_memory_stores_and_returns_metadata(db_session):
         source="manual",
         metadata=meta,
     )
-    result = await upsert_memory(db_session, req)
+    result = await _upsert_memory(db_session, req)
 
-    # metadata_ column returns JSONB value - may be dict or other type
     assert result.metadata == meta
