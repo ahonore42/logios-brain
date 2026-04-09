@@ -21,6 +21,7 @@ class SearchRequest(BaseModel):
     query: str
     top_k: int = 10
     threshold: float = 0.65
+    as_of: Optional[datetime] = None  # time-bounded retrieval filter
 
 
 class RecallRequest(BaseModel):

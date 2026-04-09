@@ -27,6 +27,7 @@ from .transactions import (
     write_memory_chunk,
     write_event,
     write_fact,
+    get_latest_fact,
 )
 from .evidence import (
     create_evidence_path,
@@ -53,6 +54,7 @@ __all__ = [
     "write_memory_chunk",
     "write_event",
     "write_fact",
+    "get_latest_fact",
     "create_evidence_path",
     "add_evidence_step",
     "link_evidence_to_output",

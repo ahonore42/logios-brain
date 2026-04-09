@@ -173,3 +173,40 @@ def write_fact(
                     source_id=source_id,
                 )
             tx.commit()
+
+
+def get_latest_fact(fact_id: str, timeout: float | None = None) -> dict | None:
+    """
+    Return the latest valid Fact in a REPLACES chain.
+
+    Given a Fact ID, traverses any REPLACES edges to find the newest
+    Fact that supersedes it. If no REPLACES edge exists, returns the
+    original fact. This ensures evidence paths always resolve to the
+    current valid Fact, not a superseded one.
+
+    Returns a dict with fact properties or None if not found.
+    """
+    driver = get_driver()
+    with driver.session() as session:
+        result = session.run(
+            """
+            MATCH (newer:Fact)-[:REPLACES]->(old:Fact {id: $fact_id})
+            RETURN newer.id as id, newer.content as content,
+                   newer.valid_from as valid_from, newer.valid_until as valid_until,
+                   newer.version as version
+            ORDER BY newer.valid_from DESC
+            LIMIT 1
+            """,
+            fact_id=fact_id,
+        )
+        record = result.single()
+        if record:
+            return dict(record)
+
+        # No replacement found — return the original fact
+        result = session.run(
+            "MATCH (f:Fact {id: $fact_id}) RETURN f.id as id, f.content as content, f.valid_from as valid_from, f.valid_until as valid_until, f.version as version",
+            fact_id=fact_id,
+        )
+        record = result.single()
+        return dict(record) if record else None

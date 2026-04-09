@@ -99,6 +99,10 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
                 "chunk_id": str(chunk.id),
                 "source": data.source,
                 "session_id": str(data.session_id) if data.session_id else None,
+                "valid_from": str(memory.captured_at),
+                "valid_until": data.metadata.get("valid_until"),
+                "revoked": data.metadata.get("revoked", False),
+                "policy_version": data.metadata.get("policy_version", 1),
             },
         ),
         task_upsert_neo4j.s(
@@ -126,20 +130,45 @@ async def _search_memories(db: AsyncSession, data: SearchRequest) -> List[Memory
     """
     Search path:
     1. NVIDIA NIM: query text → vector (one-time)
-    2. Qdrant: similarity search → memory_ids
+    2. Qdrant: similarity search with optional time-bounded filter
     3. Postgres: hydrate full memory records
     """
     # 1. NVIDIA NIM: translate query → vector
     vector = await embeddings.embed_query(data.query)
 
-    # 2. Qdrant: find closest vectors → returns scored memory_ids
-    results = qdrant_db.get_qdrant().search(
+    # 2. Qdrant: find closest vectors, optionally filtered by validity window
+    search_kwargs = dict(
         collection_name=qdrant_db.COLLECTION_NAME,
         query_vector=vector,
         limit=data.top_k,
         score_threshold=data.threshold,
         with_payload=True,
     )
+
+    if data.as_of is not None:
+        from qdrant_client.models import Filter, FieldCondition, MatchValue, DatetimeRange, IsNullCondition
+
+        # valid_until=null means open-ended — matches any time T after valid_from.
+        # The should clause handles both bounded (explicit valid_until) and unbounded (null) cases.
+        search_kwargs["query_filter"] = Filter(must=[
+            FieldCondition(
+                key="revoked",
+                match=MatchValue(value=False),
+            ),
+            FieldCondition(
+                key="valid_from",
+                range=DatetimeRange(lte=data.as_of),
+            ),
+            Filter(should=[
+                FieldCondition(
+                    key="valid_until",
+                    range=DatetimeRange(gte=data.as_of),
+                ),
+                IsNullCondition(key="valid_until", is_null=True),
+            ]),
+        ])
+
+    results = qdrant_db.get_qdrant().search(**search_kwargs)
 
     if not results:
         return []
