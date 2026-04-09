@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import JSON
 
 from app import embeddings
-from app.db import neo4j as neo4j_db
+from app import config
+from app.db.neo4j import write_memory_chunk, MemoryChunk
 from app.db import qdrant as qdrant_db
 from app.database import get_db
 from app.dependencies import verify_key
@@ -92,12 +93,18 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
     stmt = select(Memory).where(Memory.id == memory_id)
     memory = (await db.execute(stmt)).scalar_one()
 
-    # 5. Neo4j: store memory node and link to session if present
-    neo4j_db.write_memory(
-        memory_id=str(memory_id),
-        content=data.content,
-        source=data.source,
-        captured_at=str(memory.captured_at),
+    # 5. Neo4j: store MemoryChunk node and link to session if present
+    chunk_node = MemoryChunk(
+        id=str(memory_id),
+        tenant_id=config.TENANT_ID,
+        timestamp_utc=str(memory.captured_at),
+        type=data.source,
+        version=1,
+        importance=data.metadata.get("importance", 0.5),
+        confidence=data.metadata.get("confidence", 1.0),
+    )
+    write_memory_chunk(
+        chunk=chunk_node,
         session_id=str(data.session_id) if data.session_id else None,
     )
 
