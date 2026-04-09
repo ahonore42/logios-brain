@@ -4,20 +4,20 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends
-from qdrant_client.models import PointStruct
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import JSON
 
 from app import embeddings
 from app import config
-from app.db.neo4j import write_memory_chunk, MemoryChunk
 from app.db.neo4j.client import prefixed_id, NodeId
-from app.db import qdrant as qdrant_db
 from app.database import get_db
 from app.dependencies import verify_key
 from app.models import Chunk, Memory
 from app.schemas import MemoryOut, RememberRequest, SearchRequest
+from celery import chain
+from app.tasks import task_upsert_qdrant, task_upsert_neo4j
+from app.db import qdrant as qdrant_db
 
 
 class JsonDict(JSON):
@@ -38,9 +38,9 @@ router = APIRouter(prefix="/memories", tags=["mcp-memory"])
 async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
     """
     Write path:
-    1. Upsert memory to Postgres (dedup via content_fingerprint)
-    2. NVIDIA NIM: text → vector
-    3. Store chunk + vector in Qdrant (permanent)
+    1. Upsert memory to Postgres (dedup via content_fingerprint) — sync
+    2. NVIDIA NIM: text → vector — sync
+    3. Qdrant + Neo4j writes — dispatched to Celery background task
     """
     import json as _json
 
@@ -73,46 +73,42 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
     await db.commit()
     await db.refresh(chunk)
 
-    # 4. Qdrant: permanently store vector, indexed by memory_id
-    qdrant_db.get_qdrant().upsert(
-        collection_name=qdrant_db.COLLECTION_NAME,
-        points=[
-            PointStruct(
-                id=qdrant_id,
-                vector=vector,
-                payload={
-                    "memory_id": str(memory_id),
-                    "chunk_id": str(chunk.id),
-                    "source": data.source,
-                    "session_id": str(data.session_id) if data.session_id else None,
-                },
-            )
-        ],
-    )
-
-    # Fetch for return before Neo4j write (Neo4j needs captured_at)
+    # Fetch memory for return (Neo4j needs captured_at)
     stmt = select(Memory).where(Memory.id == memory_id)
     memory = (await db.execute(stmt)).scalar_one()
 
-    # 5. Neo4j: store MemoryChunk node and link to session if present
-    #    Also create an Event node representing the memory-ingestion event.
-    chunk_node = MemoryChunk(
-        id=prefixed_id(NodeId.MEMORY_CHUNK, str(memory_id)),
-        tenant_id=config.TENANT_ID,
-        timestamp_utc=str(memory.captured_at),
-        type=data.source,
-        version=1,
-        importance=data.metadata.get("importance", 0.5),
-        confidence=data.metadata.get("confidence", 1.0),
-    )
+    # 4. Dispatch Qdrant + Neo4j writes as a Celery chain.
+    #    task_upsert_qdrant runs first; task_upsert_neo4j only runs if it succeeds.
+    #    Each task has its own retry budget.
+    chunk_node_dict = {
+        "id": prefixed_id(NodeId.MEMORY_CHUNK, str(memory_id)),
+        "tenant_id": config.TENANT_ID,
+        "timestamp_utc": str(memory.captured_at),
+        "type": data.source,
+        "version": 1,
+        "importance": data.metadata.get("importance", 0.5),
+        "confidence": data.metadata.get("confidence", 1.0),
+    }
     event_id = prefixed_id(NodeId.EVENT, str(uuid.uuid4()))
-    write_memory_chunk(
-        chunk=chunk_node,
-        session_id=str(data.session_id) if data.session_id else None,
-        event_id=event_id,
-        event_type=data.source,
-        event_description=f"Memory captured: {data.source}",
-    )
+    chain(
+        task_upsert_qdrant.s(
+            qdrant_id=qdrant_id,
+            vector=vector,
+            payload={
+                "memory_id": str(memory_id),
+                "chunk_id": str(chunk.id),
+                "source": data.source,
+                "session_id": str(data.session_id) if data.session_id else None,
+            },
+        ),
+        task_upsert_neo4j.s(
+            chunk_node=chunk_node_dict,
+            session_id=str(data.session_id) if data.session_id else None,
+            event_id=event_id,
+            event_type=data.source,
+            event_description=f"Memory captured: {data.source}",
+        ),
+    ).delay()
 
     return MemoryOut(
         id=memory.id,

@@ -28,6 +28,7 @@ def write_memory_chunk(
                 SET m.tenant_id = $tenant_id,
                     m.timestamp_utc = $timestamp_utc,
                     m.type = $type,
+                    m.qdrant_id = $qdrant_id,
                     m.version = $version,
                     m.importance = $importance,
                     m.confidence = $confidence
@@ -36,6 +37,7 @@ def write_memory_chunk(
                 tenant_id=chunk.tenant_id,
                 timestamp_utc=chunk.timestamp_utc,
                 type=chunk.type,
+                qdrant_id=chunk.qdrant_id,
                 version=chunk.version,
                 importance=chunk.importance,
                 confidence=chunk.confidence,
