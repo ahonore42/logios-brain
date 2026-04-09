@@ -52,7 +52,12 @@ async def _get_or_create_skill(db: AsyncSession, name: str) -> Skill:
 async def _record_generation(
     db: AsyncSession, data: RecordGenerationRequest
 ) -> GenerationOut:
-    """Write a generation record and evidence rows."""
+    """Write a generation record, evidence rows, and Neo4j evidence path."""
+    import hashlib
+
+    from app import config
+    from app.db.neo4j import create_evidence_path
+
     skill = await _get_or_create_skill(db, data.skill_name)
 
     generation = Generation(
@@ -83,6 +88,38 @@ async def _record_generation(
         db.add(evidence)
 
     await db.commit()
+
+    # Extract memory IDs and edge types from evidence manifest for Neo4j
+    used_memory_ids = [
+        item["memory_id"]
+        for item in data.evidence_manifest
+        if item.get("memory_id")
+    ]
+    used_edge_types = list(set(
+        item.get("neo4j_rel_type")
+        for item in data.evidence_manifest
+        if item.get("neo4j_rel_type")
+    ))
+    if not used_edge_types:
+        used_edge_types = ["IN_SESSION"]  # default traversal type
+
+    query_hash = hashlib.sha256(
+        data.prompt_used.encode()
+    ).hexdigest()
+
+    # Write evidence path to Neo4j
+    create_evidence_path(
+        evidence_path_id=str(generation.id),
+        output_id=str(generation.id),
+        tenant_id=config.TENANT_ID,
+        agent_id=None,
+        query_hash=query_hash,
+        machine_id=data.machine,
+        used_memory_ids=used_memory_ids,
+        used_edge_types=used_edge_types,
+        timestamp=str(generation.generated_at),
+    )
+
     return GenerationOut.model_validate(generation)
 
 
