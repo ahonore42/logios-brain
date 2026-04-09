@@ -1,7 +1,7 @@
 """Routes for skills — run, record generation, and evidence."""
 
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -56,7 +56,7 @@ async def _record_generation(
     import hashlib
 
     from app import config
-    from app.db.neo4j import create_evidence_path
+    from app.db.neo4j import create_evidence_path, add_evidence_step, link_evidence_to_output
 
     skill = await _get_or_create_skill(db, data.skill_name)
 
@@ -118,6 +118,33 @@ async def _record_generation(
         used_memory_ids=used_memory_ids,
         used_edge_types=used_edge_types,
         timestamp=str(generation.generated_at),
+    )
+
+    # Add ordered reasoning steps
+    step_types = [
+        ("read_memory", 0),
+        ("query_policy", 1),
+        ("merge_context", 2),
+        ("generate_output", 3),
+    ]
+    prev_step_id = None
+    for step_type, order in step_types:
+        step_id = str(uuid4())
+        add_evidence_step(
+            evidence_path_id=str(generation.id),
+            step_id=step_id,
+            step_type=step_type,
+            order=order,
+            prev_step_id=prev_step_id,
+        )
+        prev_step_id = step_id
+
+    # Link evidence path to output node
+    link_evidence_to_output(
+        evidence_path_id=str(generation.id),
+        output_id=str(generation.id),
+        agent_id=None,
+        tenant_id=config.TENANT_ID,
     )
 
     return GenerationOut.model_validate(generation)
