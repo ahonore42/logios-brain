@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 # ── Request schemas ──────────────────────────────────────────────────────────
@@ -66,6 +66,8 @@ class GetEvidenceRequest(BaseModel):
 
 
 class MemoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     content: str
     source: str
@@ -75,11 +77,10 @@ class MemoryOut(BaseModel):
     metadata: dict
     content_fingerprint: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-
 
 class ChunkOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     memory_id: UUID
     content: str
@@ -88,11 +89,10 @@ class ChunkOut(BaseModel):
     qdrant_id: Optional[UUID] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class EntityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     memory_id: UUID
     neo4j_node_id: str
@@ -100,11 +100,10 @@ class EntityOut(BaseModel):
     name: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class SkillOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
     description: Optional[str] = None
@@ -114,11 +113,10 @@ class SkillOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class GenerationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     skill_id: Optional[UUID] = None
     skill_name: Optional[str] = None
@@ -130,11 +128,10 @@ class GenerationOut(BaseModel):
     generated_at: datetime
     metadata: dict
 
-    class Config:
-        from_attributes = True
-
 
 class EvidenceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     generation_id: UUID
     memory_id: Optional[UUID] = None
@@ -146,11 +143,10 @@ class EvidenceOut(BaseModel):
     rank: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class EvidenceWithContentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     generation_id: UUID
     memory_id: Optional[UUID] = None
@@ -163,9 +159,6 @@ class EvidenceWithContentOut(BaseModel):
     rank: int
     retrieval_type: str
     relevance_score: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class GenerationReceipt(BaseModel):
