@@ -8,6 +8,8 @@ import pytest
 from app.db.neo4j import (
     create_evidence_path,
     add_evidence_step,
+    get_latest_fact,
+    get_driver,
     link_evidence_to_output,
     write_event,
     write_fact,
@@ -226,6 +228,128 @@ async def test_write_fact_creates_node():
         record = result.single()
         assert record is not None
         assert record["content"] == "Client prefers tiered pricing"
+
+
+@pytest.mark.asyncio
+async def test_get_latest_fact_no_replacement():
+    """Fact with no outgoing REPLACES edge returns itself."""
+    fact = Fact(
+        id=prefixed_id(NodeId.FACT, str(uuid4())),
+        tenant_id="test-tenant",
+        content="Current pricing is $99/month",
+        valid_from="2024-01-01T00:00:00Z",
+        valid_until="2099-12-31T23:59:59Z",
+    )
+    write_fact(fact=fact)
+
+    result = get_latest_fact(fact.id)
+    assert result is not None
+    assert result["id"] == fact.id
+    assert result["content"] == "Current pricing is $99/month"
+
+
+@pytest.mark.asyncio
+async def test_get_latest_fact_single_hop():
+    """Fact v2 REPLACES v1: querying v1 returns v2."""
+    fact_v1 = Fact(
+        id=prefixed_id(NodeId.FACT, str(uuid4())),
+        tenant_id="test-tenant",
+        content="Old: pricing at $49",
+        valid_from="2024-01-01T00:00:00Z",
+        valid_until="2024-06-01T00:00:00Z",
+    )
+    fact_v2 = Fact(
+        id=prefixed_id(NodeId.FACT, str(uuid4())),
+        tenant_id="test-tenant",
+        content="New: pricing at $99",
+        valid_from="2024-06-01T00:00:00Z",
+        valid_until="2099-12-31T23:59:59Z",
+    )
+    write_fact(fact=fact_v1)
+    write_fact(fact=fact_v2)
+
+    # Create REPLACES edge: v2 REPLACES v1
+    driver = get_driver()
+    with driver.session() as session:
+        session.run(
+            """
+            MATCH (newer:Fact {id: $v2_id}), (older:Fact {id: $v1_id})
+            MERGE (newer)-[:REPLACES]->(older)
+            """,
+            v2_id=fact_v2.id,
+            v1_id=fact_v1.id,
+        )
+
+    result = get_latest_fact(fact_v1.id)
+    assert result is not None
+    assert result["id"] == fact_v2.id
+    assert result["content"] == "New: pricing at $99"
+
+
+@pytest.mark.asyncio
+async def test_get_latest_fact_multi_hop_chain():
+    """Fact v3 REPLACES v2 REPLACES v1: querying v1 returns v3 (chain tip)."""
+    fact_v1 = Fact(
+        id=prefixed_id(NodeId.FACT, str(uuid4())),
+        tenant_id="test-tenant",
+        content="v1: initial estimate",
+        valid_from="2024-01-01T00:00:00Z",
+        valid_until="2024-03-01T00:00:00Z",
+    )
+    fact_v2 = Fact(
+        id=prefixed_id(NodeId.FACT, str(uuid4())),
+        tenant_id="test-tenant",
+        content="v2: revised estimate",
+        valid_from="2024-03-01T00:00:00Z",
+        valid_until="2024-06-01T00:00:00Z",
+    )
+    fact_v3 = Fact(
+        id=prefixed_id(NodeId.FACT, str(uuid4())),
+        tenant_id="test-tenant",
+        content="v3: final estimate",
+        valid_from="2024-06-01T00:00:00Z",
+        valid_until="2099-12-31T23:59:59Z",
+    )
+    write_fact(fact=fact_v1)
+    write_fact(fact=fact_v2)
+    write_fact(fact=fact_v3)
+
+    # Create chain: v2 REPLACES v1, v3 REPLACES v2
+    driver = get_driver()
+    with driver.session() as session:
+        session.run(
+            """
+            MATCH (v2:Fact {id: $v2_id}), (v1:Fact {id: $v1_id}), (v3:Fact {id: $v3_id})
+            MERGE (v2)-[:REPLACES]->(v1)
+            MERGE (v3)-[:REPLACES]->(v2)
+            """,
+            v1_id=fact_v1.id,
+            v2_id=fact_v2.id,
+            v3_id=fact_v3.id,
+        )
+
+    # Querying v1 should return v3 (chain tip), not v2
+    result = get_latest_fact(fact_v1.id)
+    assert result is not None
+    assert result["id"] == fact_v3.id
+    assert result["content"] == "v3: final estimate"
+
+    # Querying v2 should also return v3
+    result_v2 = get_latest_fact(fact_v2.id)
+    assert result_v2 is not None
+    assert result_v2["id"] == fact_v3.id
+
+    # Querying v3 should return v3 itself
+    result_v3 = get_latest_fact(fact_v3.id)
+    assert result_v3 is not None
+    assert result_v3["id"] == fact_v3.id
+
+
+@pytest.mark.asyncio
+async def test_get_latest_fact_not_found():
+    """Non-existent Fact ID returns None."""
+    result = get_latest_fact("nonexistent-fact-id")
+    assert result is None
 
 
 @pytest.mark.asyncio

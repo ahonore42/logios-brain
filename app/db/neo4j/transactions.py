@@ -181,34 +181,44 @@ def get_latest_fact(fact_id: str, timeout: float | None = None) -> dict | None:
     """
     Return the latest valid Fact in a REPLACES chain.
 
-    Given a Fact ID, traverses any REPLACES edges to find the newest
-    Fact that supersedes it. If no REPLACES edge exists, returns the
-    original fact. This ensures evidence paths always resolve to the
-    current valid Fact, not a superseded one.
+    Given a Fact ID, traverses the REPLACES edge chain to find the newest
+    Fact that supersedes it. A variable-length path traversal
+    ([:REPLACES*0..]) handles chains of any length atomically:
+
+    - `*0..` matches zero or more REPLACES edges — if the queried fact has
+      no incoming REPLACES (no one supersedes it), it is returned as-is.
+    - `WHERE NOT exists(()-[:REPLACES]->(tip))` selects only the chain tip
+      (the newest Fact that nothing supersedes).
+    - `ORDER BY tip.valid_from DESC LIMIT 1` resolves multiple parallel tips
+      by preferring the most recently valid version.
+
+    This ensures evidence paths always resolve to the current valid Fact,
+    not a superseded one.
 
     Returns a dict with fact properties or None if not found.
     """
     driver = get_driver()
     with driver.session() as session:
-        result = session.run(
+        # REPLACES direction: NEWER -[:REPLACES]-> OLDER
+        # (v2 REPLACES v1 means v2→v1, i.e. v2 is the newer/current fact).
+        #
+        # Strategy: follow INCOMING REPLACES edges from the starting fact
+        # to find the chain of newer facts (*0.. includes the starting node).
+        # The chain TIP is the reachable node with NO INCOMING REPLACES
+        # (the newest fact that nothing supersedes).
+        # ORDER BY valid_from DESC LIMIT 1 resolves parallel chains.
+        records = list(session.run(
             """
-            MATCH (newer:Fact)-[:REPLACES]->(old:Fact {id: $fact_id})
-            RETURN newer.id as id, newer.content as content,
-                   newer.valid_from as valid_from, newer.valid_until as valid_until,
-                   newer.version as version
-            ORDER BY newer.valid_from DESC
+            MATCH (start:Fact {id: $fact_id})
+            MATCH (tip:Fact)-[:REPLACES*0..]->(start)
+            WHERE NOT exists(()-[:REPLACES]->(tip))
+            RETURN tip.id as id, tip.content as content,
+                   tip.valid_from as valid_from,
+                   tip.valid_until as valid_until,
+                   tip.version as version
+            ORDER BY tip.valid_from DESC
             LIMIT 1
             """,
             fact_id=fact_id,
-        )
-        record = result.single()
-        if record:
-            return dict(record)
-
-        # No replacement found — return the original fact
-        result = session.run(
-            "MATCH (f:Fact {id: $fact_id}) RETURN f.id as id, f.content as content, f.valid_from as valid_from, f.valid_until as valid_until, f.version as version",
-            fact_id=fact_id,
-        )
-        record = result.single()
-        return dict(record) if record else None
+        ))
+        return dict(records[0]) if records else None
