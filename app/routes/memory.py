@@ -16,7 +16,7 @@ from app.dependencies import verify_key
 from app.models import Chunk, Memory
 from app.schemas import MemoryOut, RememberRequest, SearchRequest
 from celery import chain
-from app.tasks import task_upsert_qdrant, task_upsert_neo4j
+from app.tasks import task_upsert_qdrant, task_upsert_neo4j, task_extract_entities
 from app.db import qdrant as qdrant_db
 
 
@@ -112,6 +112,11 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
             event_id=event_id,
             event_type=data.source,
             event_description=f"Memory captured: {data.source}",
+        ),
+        task_extract_entities.s(
+            content=data.content,
+            chunk_node_id=prefixed_id(NodeId.MEMORY_CHUNK, str(memory_id)),
+            tenant_id=config.TENANT_ID,
         ),
     ).delay()
 
