@@ -1,18 +1,37 @@
 """
 Entity extraction via NVIDIA NIM chat completions API.
 Uses microsoft/phi-3-mini-128k-instruct for speed — narrow structured task.
+
+Pipeline:
+  1. preflight_extract() — deterministic spaCy NER + dictionary scan
+     Covers: Person, Location, Tool (high confidence, no API call)
+  2. LLM call — phi-3-mini via NVIDIA NIM, unmodified system prompt
+     Covers: Decision, Concept, Project, Event, Document, and anything
+     the pre-filter missed.
+  3. merge_entities() — preflight wins on name collisions
 """
+
 import json
 
 import httpx
 
 from app import config
+from app.entity_preflight import merge_entities, preflight_extract
 
 COMPLETION_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 ENTITY_MODEL = "microsoft/phi-3-mini-128k-instruct"
 
 VALID_REL_TYPES = {"RELATES_TO", "PART_OF", "CREATED_BY", "MENTIONS", "CAUSED_BY"}
-VALID_LABELS = {"Project", "Person", "Concept", "Decision", "Tool", "Event", "Location", "Document"}
+VALID_LABELS = {
+    "Project",
+    "Person",
+    "Concept",
+    "Decision",
+    "Tool",
+    "Event",
+    "Location",
+    "Document",
+}
 
 SYSTEM_PROMPT = """You are an entity extraction model. Return ONLY valid JSON, no explanation, no markdown.
 
@@ -45,14 +64,25 @@ Schema: {"entities": [{"name": str, "label": "Project|Person|Concept|Decision|To
 
 def extract_entities(text: str, retries: int = 2) -> list[dict]:
     """
-    Extract named entities from a memory string using microsoft/phi-3-mini-128k-instruct.
+    Extract named entities from a memory string.
+
+    Step 1 — deterministic pre-filter (no API call, always runs).
+    Step 2 — LLM call, independent of the pre-filter.
+    Step 3 — merge, with preflight winning on name collisions.
 
     Synchronous — called from Celery worker context.
-    Best-effort: returns empty list on any failure rather than raising.
+    Best-effort: returns pre-filter results on LLM failure rather than [].
     """
     text = text.strip()
     if not text:
         return []
+
+    # -- Step 1: deterministic pre-filter --
+    preflight = preflight_extract(text)
+
+    # -- Step 2: LLM extraction --
+    llm_entities: list[dict] = []
+
     for attempt in range(retries):
         try:
             with httpx.Client(timeout=15.0) as client:
@@ -62,7 +92,10 @@ def extract_entities(text: str, retries: int = 2) -> list[dict]:
                         "model": ENTITY_MODEL,
                         "messages": [
                             {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user", "content": f"Extract entities from:\n\n{text}"},
+                            {
+                                "role": "user",
+                                "content": f"Extract entities from:\n\n{text}",
+                            },
                         ],
                         "max_tokens": 512,
                         "temperature": 0.0,
@@ -78,19 +111,23 @@ def extract_entities(text: str, retries: int = 2) -> list[dict]:
                     content = content.replace("```json", "").replace("```", "").strip()
                 parsed = json.loads(content)
 
-                # Validate and sanitize: discard hallucinated relationship types and invalid labels
-                entities = parsed.get("entities", [])
-                for entity in entities:
+                # Validate and sanitize LLM output
+                raw = parsed.get("entities", [])
+                for entity in raw:
                     entity["relationships"] = [
-                        rel for rel in entity.get("relationships", [])
+                        rel
+                        for rel in entity.get("relationships", [])
                         if rel.get("type", "").upper() in VALID_REL_TYPES
                         and rel.get("target", "").strip()
                     ]
-                # Discard entities with labels not in the allowed set
-                entities = [e for e in entities if e.get("label", "") in VALID_LABELS]
-                return entities
+                llm_entities = [e for e in raw if e.get("label", "") in VALID_LABELS]
+                break  # success — exit retry loop
+
         except Exception:
             if attempt < retries - 1:
                 continue
-            return []
-    return []
+            # LLM failed after all retries — return preflight results rather than []
+            return preflight
+
+    # -- Step 3: merge --
+    return merge_entities(preflight, llm_entities)

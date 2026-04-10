@@ -66,7 +66,9 @@ class TestExtractEntities:
             }
         )
 
-        result = extract_entities("Alice worked on Project Alpha")
+        # Patch preflight so this test isolates LLM output only
+        with patch("app.entity_extraction.preflight_extract", return_value=[]):
+            result = extract_entities("Alice worked on Project Alpha")
 
         assert len(result) == 1
         assert result[0]["name"] == "Project Alpha"
@@ -123,7 +125,9 @@ class TestExtractEntities:
             }
         )
 
-        result = extract_entities("Report Q1 relates to Alice")
+        # Patch preflight so this test isolates LLM filtering only
+        with patch("app.entity_extraction.preflight_extract", return_value=[]):
+            result = extract_entities("Report Q1 relates to Alice")
 
         assert len(result) == 1
         rel_types = {r["type"] for r in result[0]["relationships"]}
