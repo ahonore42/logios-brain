@@ -63,6 +63,15 @@ class GetEvidenceRequest(BaseModel):
     generation_id: UUID
 
 
+class CreateFactRequest(BaseModel):
+    tenant_id: str
+    content: str
+    valid_from: datetime
+    valid_until: Optional[datetime] = None
+    version: int = 1
+    replaces_id: Optional[str] = None  # optional REPLACES link to an older Fact
+
+
 # ── Response schemas ──────────────────────────────────────────────────────────
 
 

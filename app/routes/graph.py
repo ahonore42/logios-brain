@@ -8,13 +8,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.db.neo4j import get_latest_fact
-from app.db.neo4j.client import NodeId, get_driver
+from app.db.neo4j import get_driver, get_latest_fact, write_fact
+from app.db.neo4j.client import NodeId, prefixed_id
 from app.dependencies import verify_key
 from app.models import Memory
 
 # from app.models import Entity  # TODO: re-enable when entity-only search is needed
 from app.schemas import (
+    CreateFactRequest,
     FactOut,
     GraphSearchRequest,
     GraphTraversalResult,
@@ -200,3 +201,63 @@ async def graph_search_route(
     (resolved from Neo4j) in a single response.
     """
     return await _traverse_from_entity(db, data.entity_name, data.depth)
+
+
+@router.post("/facts", response_model=FactOut, status_code=201)
+async def create_fact_route(
+    data: CreateFactRequest,
+    _=Depends(verify_key),
+):
+    """
+    Manually assert a Fact into the graph.
+
+    Optionally links the new Fact to an existing one via REPLACES, enabling
+    version chains without going through the memory extraction pipeline.
+    """
+    from app.db.neo4j import Fact
+
+    fact_id = prefixed_id(NodeId.FACT, str(uuid.uuid4()))
+    fact = Fact(
+        id=fact_id,
+        tenant_id=data.tenant_id,
+        content=data.content,
+        valid_from=data.valid_from.isoformat(),
+        valid_until=data.valid_until.isoformat() if data.valid_until else "2099-12-31T23:59:59Z",
+        version=data.version,
+    )
+
+    derived_from_ids = [data.replaces_id] if data.replaces_id else None
+    write_fact(fact=fact, derived_from_ids=derived_from_ids)
+
+    return FactOut(
+        id=fact.id,
+        content=fact.content,
+        valid_from=fact.valid_from,
+        valid_until=fact.valid_until,
+        version=fact.version,
+    )
+
+
+@router.get("/facts/{fact_id}", response_model=FactOut, status_code=200)
+async def get_fact_route(
+    fact_id: str,
+    _=Depends(verify_key),
+):
+    """
+    Retrieve a Fact by ID, resolved through its REPLACES chain.
+
+    Returns the newest valid Fact that supersedes the given ID, or 404 if
+    the ID is not found.
+    """
+    resolved = get_latest_fact(fact_id)
+    if resolved is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Fact not found")
+
+    return FactOut(
+        id=resolved["id"],
+        content=resolved["content"],
+        valid_from=resolved["valid_from"],
+        valid_until=resolved.get("valid_until"),
+        version=resolved["version"],
+    )
