@@ -20,7 +20,6 @@ from app.schemas import (
     SearchRequest,
 )
 
-
 router = APIRouter(prefix="/skills", tags=["mcp-skills"])
 
 
@@ -56,8 +55,12 @@ async def _record_generation(
     import hashlib
 
     from app import config
-    from app.db.neo4j import create_evidence_path, add_evidence_step, link_evidence_to_output
-    from app.db.neo4j.client import prefixed_id, NodeId
+    from app.db.neo4j import (
+        add_evidence_step,
+        create_evidence_path,
+        link_evidence_to_output,
+    )
+    from app.db.neo4j.client import NodeId, prefixed_id
 
     skill = await _get_or_create_skill(db, data.skill_name)
 
@@ -96,17 +99,17 @@ async def _record_generation(
         for item in data.evidence_manifest
         if item.get("memory_id")
     ]
-    used_edge_types = list(set(
-        item.get("neo4j_rel_type")
-        for item in data.evidence_manifest
-        if item.get("neo4j_rel_type")
-    ))
+    used_edge_types: list[str] = list(
+        set(
+            item["neo4j_rel_type"]
+            for item in data.evidence_manifest
+            if item.get("neo4j_rel_type") is not None
+        )
+    )
     if not used_edge_types:
         used_edge_types = ["IN_SESSION"]  # default traversal type
 
-    query_hash = hashlib.sha256(
-        data.prompt_used.encode()
-    ).hexdigest()
+    query_hash = hashlib.sha256(data.prompt_used.encode()).hexdigest()
 
     # Write evidence path to Neo4j
     create_evidence_path(

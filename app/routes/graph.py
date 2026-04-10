@@ -9,11 +9,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.db.neo4j import get_latest_fact
-from app.db.neo4j.client import get_driver, NodeId
+from app.db.neo4j.client import NodeId, get_driver
 from app.dependencies import verify_key
 from app.models import Memory
+
 # from app.models import Entity  # TODO: re-enable when entity-only search is needed
-from app.schemas import FactOut, GraphSearchRequest, GraphTraversalResult, MemoryOut, RecallRequest
+from app.schemas import (
+    FactOut,
+    GraphSearchRequest,
+    GraphTraversalResult,
+    MemoryOut,
+    RecallRequest,
+)
+
 # EntityOut  # TODO: re-enable when entity-only search route is restored
 
 
@@ -96,18 +104,26 @@ async def _traverse_from_entity(
             mem_records = row.get("mem_records") or []
             fact_records = row.get("fact_records") or []
             for r in mem_records:
-                if r.get("memory_id"):  # skip null rows from OPTIONAL MATCH with no matches
-                    records.append({
-                        "node_type": "MemoryChunk",
-                        "memory_id": r.get("memory_id"),
-                        "qdrant_id": r.get("qdrant_id"),
-                    })
+                if r.get(
+                    "memory_id"
+                ):  # skip null rows from OPTIONAL MATCH with no matches
+                    records.append(
+                        {
+                            "node_type": "MemoryChunk",
+                            "memory_id": r.get("memory_id"),
+                            "qdrant_id": r.get("qdrant_id"),
+                        }
+                    )
             for r in fact_records:
-                if r.get("fact_id"):  # skip null rows from OPTIONAL MATCH with no matches
-                    records.append({
-                        "node_type": "Fact",
-                        "fact_id": r.get("fact_id"),
-                    })
+                if r.get(
+                    "fact_id"
+                ):  # skip null rows from OPTIONAL MATCH with no matches
+                    records.append(
+                        {
+                            "node_type": "Fact",
+                            "fact_id": r.get("fact_id"),
+                        }
+                    )
 
     if not records:
         return GraphTraversalResult(memories=[], facts=[])
@@ -119,10 +135,12 @@ async def _traverse_from_entity(
         if r.get("node_type") == "MemoryChunk":
             prefixed_id = r.get("memory_id")
             if prefixed_id and prefixed_id.startswith(prefix):
-                uuid_str = prefixed_id[len(prefix):]
+                uuid_str = prefixed_id[len(prefix) :]
                 memory_ids.append(uuid.UUID(uuid_str))
         elif r.get("node_type") == "Fact":
-            fact_ids_seen.add(r.get("fact_id"))
+            fact_id = r.get("fact_id")
+            if fact_id is not None:
+                fact_ids_seen.add(fact_id)
 
     # Hydrate MemoryChunks from Postgres, preserving traversal order
     memories = []

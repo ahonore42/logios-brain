@@ -3,25 +3,25 @@
 import uuid
 from typing import List
 
+from celery import chain
 from fastapi import APIRouter, Depends
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import JSON
 
-from app import embeddings
-from app import config
-from app.db.neo4j.client import prefixed_id, NodeId
+from app import config, embeddings
 from app.database import get_db
+from app.db import qdrant as qdrant_db
+from app.db.neo4j.client import NodeId, prefixed_id
 from app.dependencies import verify_key
 from app.models import Chunk, Memory
 from app.schemas import MemoryOut, RememberRequest, SearchRequest
-from celery import chain
-from app.tasks import task_upsert_qdrant, task_upsert_neo4j, task_extract_entities
-from app.db import qdrant as qdrant_db
+from app.tasks import task_extract_entities, task_upsert_neo4j, task_upsert_qdrant
 
 
 class JsonDict(JSON):
     """Coerce JSONB to plain dict after load."""
+
     cache_ok = True
 
     def process_result_value(self, value, dialect):
@@ -152,29 +152,40 @@ async def _search_memories(db: AsyncSession, data: SearchRequest) -> List[Memory
     )
 
     if data.as_of is not None:
-        from qdrant_client.models import Filter, FieldCondition, MatchValue, DatetimeRange, IsNullCondition
+        from qdrant_client.models import (
+            DatetimeRange,
+            FieldCondition,
+            Filter,
+            IsNullCondition,
+            MatchValue,
+            PayloadField,
+        )
 
         # valid_until=null means open-ended — matches any time T after valid_from.
         # The should clause handles both bounded (explicit valid_until) and unbounded (null) cases.
-        search_kwargs["query_filter"] = Filter(must=[
-            FieldCondition(
-                key="revoked",
-                match=MatchValue(value=False),
-            ),
-            FieldCondition(
-                key="valid_from",
-                range=DatetimeRange(lte=data.as_of),
-            ),
-            Filter(should=[
+        search_kwargs["query_filter"] = Filter(
+            must=[
                 FieldCondition(
-                    key="valid_until",
-                    range=DatetimeRange(gte=data.as_of),
+                    key="revoked",
+                    match=MatchValue(value=False),
                 ),
-                IsNullCondition(key="valid_until", is_null=True),
-            ]),
-        ])
+                FieldCondition(
+                    key="valid_from",
+                    range=DatetimeRange(lte=data.as_of),
+                ),
+                Filter(
+                    should=[
+                        FieldCondition(
+                            key="valid_until",
+                            range=DatetimeRange(gte=data.as_of),
+                        ),
+                        IsNullCondition(is_null=PayloadField(key="valid_until")),
+                    ]
+                ),
+            ]
+        )
 
-    results = qdrant_db.get_qdrant().search(**search_kwargs)
+    results = qdrant_db.get_qdrant().query_points(**search_kwargs).points
 
     if not results:
         return []
