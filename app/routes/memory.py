@@ -133,24 +133,9 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
 
 
 async def _search_memories(db: AsyncSession, data: SearchRequest) -> List[MemoryOut]:
-    """
-    Search path:
-    1. NVIDIA NIM: query text → vector (one-time)
-    2. Qdrant: similarity search with optional time-bounded filter
-    3. Postgres: hydrate full memory records
-    """
-    # 1. NVIDIA NIM: translate query → vector
     vector = await embeddings.embed_query(data.query)
 
-    # 2. Qdrant: find closest vectors, optionally filtered by validity window
-    search_kwargs = dict(
-        collection_name=qdrant_db.COLLECTION_NAME,
-        query_vector=vector,
-        limit=data.top_k,
-        score_threshold=data.threshold,
-        with_payload=True,
-    )
-
+    query_filter = None
     if data.as_of is not None:
         from qdrant_client.models import (
             DatetimeRange,
@@ -161,9 +146,7 @@ async def _search_memories(db: AsyncSession, data: SearchRequest) -> List[Memory
             PayloadField,
         )
 
-        # valid_until=null means open-ended — matches any time T after valid_from.
-        # The should clause handles both bounded (explicit valid_until) and unbounded (null) cases.
-        search_kwargs["query_filter"] = Filter(
+        query_filter = Filter(
             must=[
                 FieldCondition(
                     key="revoked",
@@ -185,19 +168,25 @@ async def _search_memories(db: AsyncSession, data: SearchRequest) -> List[Memory
             ]
         )
 
-    results = qdrant_db.get_qdrant().query_points(**search_kwargs).points
+    response = qdrant_db.get_qdrant().query_points(
+        collection_name=qdrant_db.COLLECTION_NAME,
+        query=vector,
+        limit=data.top_k,
+        score_threshold=data.threshold,
+        with_payload=True,
+        query_filter=query_filter,
+    )
+    results = response.points
 
     if not results:
         return []
 
-    # 3. Postgres: hydrate full records
-    memory_ids = [uuid.UUID(r.payload["memory_id"]) for r in results]
+    memory_ids = [uuid.UUID(r.payload["memory_id"]) for r in results if r.payload]
     stmt = select(Memory).where(Memory.id.in_(memory_ids))
     result = await db.execute(stmt)
     rows = result.scalars().all()
     memories = {row.id: row for row in rows}
 
-    # Preserve Qdrant score order
     ordered = [memories[mid] for mid in memory_ids if mid in memories]
     return [MemoryOut.model_validate(r) for r in ordered]
 
