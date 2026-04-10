@@ -33,9 +33,7 @@ jobs:
 
       - name: Verify no missing imports in tools
         run: |
-          uv run python -c "
-from server.db import postgres, supabase, qdrant, neo4j_client
-from server import embeddings, entity_extraction
-from server.tools import remember, search, relate, run_skill, get_evidence
-print('All imports OK')
-"
+          uv run python -c "from server.db import postgres, supabase, qdrant, neo4j_client"
+          uv run python -c "from server import embeddings, entity_extraction"
+          uv run python -c "from server.tools import remember, search, relate, run_skill, get_evidence"
+          echo "All imports OK"
