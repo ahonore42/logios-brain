@@ -2,140 +2,247 @@
 
 ## Role
 
-Neo4j is the **map maker**. It stores every memory as a node and draws typed relationships between them, enabling traversal queries that answer "why" things are connected, not just "what" exists.
+Neo4j is the **map maker** and **evidence layer**. It stores memories as nodes, draws typed relationships between them, and records full provenance traces for every AI output — enabling traversal queries that answer "why" things are connected, not just "what" exists.
 
-## Data Model
+---
 
-### Memory Node
+## Node Types
+
+All nodes use prefixed IDs: `memc:<uuid>`, `evt:<uuid>`, `fact:<uuid>`, `out:<uuid>`, `agt:<uuid>`.
+
+### `MemoryChunk`
+
+Written on every `/memories/remember` call via Celery chain. Links back to Qdrant via `qdrant_id`.
 
 ```cypher
-(:Memory {
-  id: UUID,           -- matches Postgres memory.id
-  content: string,    -- full text
-  source: string,     -- 'telegram', 'claude', 'agent', 'manual'
-  captured_at: datetime,
-  session_id: UUID    -- optional grouping
+(:MemoryChunk {
+  id: string,           -- prefixed: "memc:<uuid>"
+  tenant_id: string,
+  timestamp_utc: string,
+  type: string,         -- "manual", "telegram", "claude", etc.
+  qdrant_id: string,    -- cross-reference to Qdrant vector
+  revoked: bool,        -- soft delete; filter in all traversals
+  version: int,
+  importance: float,
+  confidence: float
 })
 ```
 
-Labels: `Memory`
-Indexes: `id` (unique), `captured_at`, `source`
+### `Event`
 
-### Session Node
+Written on every memory ingest. Represents the moment of capture.
 
 ```cypher
-(:Session {
-  id: UUID,           -- matches session_id
-  created_at: datetime
+(:Event {
+  id: string,           -- prefixed: "evt:<uuid>"
+  tenant_id: string,
+  agent_id: string,
+  type: string,         -- "meeting", "decision", "tool_call", "approval", "error"
+  description: string,
+  timestamp_utc: string
 })
 ```
 
-Sessions group related memories. A memory without a session_id is a standalone thought.
+### `Fact`
 
-### Relationship Types
-
-Relationships are **typed** and **directional**:
+Derived assertions with temporal validity. Supports `REPLACES` chains for versioning.
 
 ```cypher
--- Memory belongs to a session
-(m:Memory)-[:IN_SESSION]->(s:Session)
-
--- Agent-discovered: these memories are topically related
-(m1:Memory)-[:RELATED_TO {reason: "discussed in same planning meeting"}]->(m2:Memory)
-
--- Agent-discovered: causal chain
-(m1:Memory)-[:CAUSED {by: "decision made in 2024-Q3"}]->(m2:Memory)
-
--- Similarity link from vector search (Qdrant)
-(m1:Memory)-[:SIMILAR_TO {score: 0.94}]->(m2:Memory)
+(:Fact {
+  id: string,           -- prefixed: "fact:<uuid>"
+  tenant_id: string,
+  content: string,
+  valid_from: string,
+  valid_until: string,  -- null means open-ended
+  version: int
+})
 ```
 
-Relationship types are defined by the agent that writes them. The graph schema is open — agents create relationship types as needed.
+### `EvidencePath`
 
-## Write Path
+Root node for every AI generation receipt. Links to memories read, edges traversed, agent, machine, and timestamp.
 
-When a memory is stored via `/memories/remember`:
-
-1. **PostgreSQL** — memory record (source of truth)
-2. **Qdrant** — vector embedding for similarity search
-3. **Neo4j** — memory node created via MERGE (idempotent)
-
-```python
-# Pseudocode
-def write_memory_to_neo4j(memory_id, content, source, captured_at, session_id):
-    with driver.session() as session:
-        # Upsert memory node
-        session.run("""
-            MERGE (m:Memory {id: $id})
-            SET m.content = $content,
-                m.source = $source,
-                m.captured_at = $captured_at
-        """, id=memory_id, content=content, source=source, captured_at=captured_at)
-
-        # Link to session if present
-        if session_id:
-            session.run("""
-                MERGE (s:Session {id: $session_id})
-                WITH s
-                MATCH (m:Memory {id: $id})
-                MERGE (m)-[:IN_SESSION]->(s)
-            """, session_id=session_id, id=memory_id)
+```cypher
+(:EvidencePath {
+  id: string,
+  output_id: string,
+  tenant_id: string,
+  agent_id: string,
+  query_hash: string,
+  machine_id: string,
+  timestamp: string
+})
 ```
+
+### `EvidenceStep`
+
+Ordered reasoning chain steps linked via `NEXT`.
+
+```cypher
+(:EvidenceStep {
+  id: string,
+  step_type: string,   -- "read_memory", "query_policy", "merge_context", "generate_output"
+  order: int
+})
+```
+
+### Structural Nodes
+
+```cypher
+(:Agent { id: string, tenant_id: string, name: string, role: string, model_used: string })
+(:Output { id: string, tenant_id: string, type: string, timestamp: string })
+(:Session { id: string, tenant_id: string })
+(:Date { date: string })                    -- "2026-04-09"
+(:Period { name: string })                   -- "Q1-2026"
+(:Tenant { id: string })
+(:Edge { type: string })                    -- placeholder for FOLLOWED edge types
+```
+
+---
+
+## Relationship Types
+
+### Memory / Event / Fact
+
+```cypher
+(:MemoryChunk)-[:DESCRIBES]->(:Event)
+(:Event)-[:DESCRIBES]->(:MemoryChunk)
+(:Fact)-[:DERIVED_FROM]->(:MemoryChunk)
+(:Fact)-[:REPLACES]->(:Fact)    -- versioning: newer replaces older
+(:Fact)-[:OVERRIDES]->(:Fact)
+```
+
+### Temporal
+
+```cypher
+(:Event)-[:OCCURRED_ON]->(:Date)
+(:Fact)-[:APPLIES_DURING]->(:Period)
+(:Event)-[:HAPPENED_BEFORE]->(:Event)
+(:Event)-[:HAPPENED_AFTER]->(:Event)
+```
+
+### Policy / Contract
+
+```cypher
+(:Policy)-[:APPLIES_TO]->(:Tenant)
+(:Policy)-[:APPLIES_TO]->(:Agent)
+(:Policy)-[:REQUIRES]->(:Fact)
+(:Contract)-[:GOVERNS]->(:Agent)
+(:Contract)-[:GOVERNS]->(:Tenant)
+(:Agent)-[:AUTHORIZED_BY]->(:Contract)
+```
+
+### Evidence Layer
+
+```cypher
+(:EvidencePath)-[:USED]->(:MemoryChunk | :Event | :Fact)
+(:EvidencePath)-[:FOLLOWED]->(:Edge)
+(:EvidencePath)-[:PRODUCED]->(:Output)
+(:EvidencePath)-[:GENERATED_BY]->(:Agent)
+(:EvidencePath)-[:BELONGS_TO]->(:Tenant)
+(:EvidenceStep)-[:BELONGS_TO]->(:EvidencePath)
+(:EvidenceStep)-[:NEXT]->(:EvidenceStep)
+```
+
+### Structural
+
+```cypher
+(:MemoryChunk)-[:IN_SESSION]->(:Session)
+```
+
+---
+
+## Write Paths
+
+### Memory Ingest (Celery chain)
+
+```
+POST /memories/remember
+  → task_upsert_qdrant (Qdrant vector write)
+  → task_upsert_neo4j (MemoryChunk + Event nodes)
+  → task_extract_entities (entity nodes + DESCRIBES links)
+```
+
+`task_upsert_neo4j` writes the `MemoryChunk` with `qdrant_id` cross-reference and an `Event` node linked via `DESCRIBES`. The `qdrant_id` makes the graph self-contained — any `MemoryChunk` can resolve its vector directly from Qdrant.
+
+### Entity Extraction
+
+`task_extract_entities` (3rd chain link) calls `microsoft/phi-3-mini-128k-instruct` via NVIDIA NIM, validates against `VALID_LABELS` and `VALID_REL_TYPES`, then writes labeled entity nodes (`Person`, `Project`, `Concept`, `Decision`, `Tool`, `Event`, `Location`, `Document`) to Neo4j with `DESCRIBES` links to the `MemoryChunk`, plus typed entity-to-entity relationships.
+
+Extraction is conservative — the system prompt instructs the model to extract only the most significant anchors worth traversing from, not every noun.
+
+### Evidence Path (on `POST /skills/record`)
+
+```
+POST /skills/record
+  → write Generation + Evidence rows to Postgres
+  → create_evidence_path() in Neo4j
+    - EvidencePath node
+    - [:USED] links to each MemoryChunk
+    - [:FOLLOWED] links to each traversed Edge type
+  → add_evidence_step() — 4 ordered steps with [:BELONGS_TO] and [:NEXT] chains
+  → link_evidence_to_output()
+    - [:PRODUCED] → Output
+    - [:GENERATED_BY] → Agent
+    - [:BELONGS_TO] → Tenant
+```
+
+---
 
 ## Traversal Queries
 
-### "What memories are connected to this one?"
+### Graph Search (`POST /graph/search`)
+
+Single-pass Cypher traversal from a named entity — one `MATCH` anchor shared across two `OPTIONAL MATCH` clauses:
 
 ```cypher
-MATCH (m:Memory {id: $id})-[r]-(other)
-RETURN other, type(r) as relationship, r.reason as note
+MATCH (e {name: $name})
+WITH e
+OPTIONAL MATCH (e)-[*1..$depth]-(m:MemoryChunk)
+WHERE m.revoked IS NULL OR m.revoked = false
+WITH e, collect(DISTINCT {memory_id: m.id, qdrant_id: m.qdrant_id}) as mem_records
+OPTIONAL MATCH (e)-[*1..$depth]-(f:Fact)
+RETURN mem_records, collect(DISTINCT {fact_id: f.id}) as fact_records
 ```
 
-### "Show me the full session this memory belongs to"
+`OPTIONAL MATCH` shares the entity anchor without double lookup. `collect(DISTINCT {...})` aggregates results; null guards needed since `OPTIONAL MATCH` produces null-filled rows when no matches exist.
+
+`MemoryChunk` nodes are hydrated from Postgres. `Fact` nodes are resolved through `REPLACES` chains via `get_latest_fact()` to return the newest valid version.
+
+### `get_latest_fact()`
 
 ```cypher
-MATCH (m:Memory {id: $id})-[:IN_SESSION]->(s:Session)<-[:IN_SESSION]-(related)
-RETURN collect(related) as session_memories
+MATCH (newer)-[:REPLACES]->(old {id: $fact_id})
+WHERE old.valid_from <= datetime() < coalesce(old.valid_until, datetime())
+RETURN newer
+ORDER BY newer.valid_from DESC
+LIMIT 1
 ```
 
-### "Find all memories that caused this decision"
+Falls back to the original fact if no newer version exists.
 
-```cypher
-MATCH (m:Memory)-[r:CAUSED]->(dec:Memory {id: $id})
-RETURN m.content as cause, r.by as reason
+---
+
+## Indexes and Constraints
+
+Created on every application boot via `ensure_indexes()`:
+
+```python
+# Unique constraints
+MemoryChunk(id), Event(id), Fact(id), EvidencePath(id),
+EvidenceStep(id), Agent(id), Output(id), Date(date), Period(name)
+
+# MemoryChunk revoked filter
+# (handled via WHERE clause in queries, not a separate index)
 ```
 
-### "What topics is this person associated with?"
+---
 
-```cypher
-MATCH (p:Person {name: $name})-[:MENTIONS|RELATED_TO*1..3]->(m:Memory)
-RETURN m.content, m.captured_at
-```
+## Key Design Decisions
 
-## Indexes
-
-Create before any writes:
-
-```cypher
-CREATE CONSTRAINT memory_id IF NOT EXISTS FOR (m:Memory) REQUIRE m.id IS UNIQUE;
-CREATE INDEX memory_captured_at IF NOT EXISTS FOR (m:Memory) ON (m.captured_at);
-CREATE INDEX session_id IF NOT EXISTS FOR (s:Session) REQUIRE s.id IS UNIQUE;
-```
-
-## Key Properties of Neo4j
-
-- **Relationships are first-class citizens** — stored as typed, directed edges with properties
-- **MERGE is upsert** — `MERGE (m:Memory {id: $id})` finds or creates atomically
-- **Pattern matching scales** — traversal depth doesn't degrade as the graph grows
-- **Open schema** — agents define new relationship types dynamically
-- **Provenance** — every relationship can carry a `reason` or `by` property explaining why it exists
-
-## Interaction with Evidence Layer
-
-The evidence layer (see [skills.md](./skills.md)) stores generation receipts. Each receipt references memory nodes via `memory_id`. Neo4j traversal answers follow-up questions like:
-
-- "Which memories led to this decision?"
-- "Show me the reasoning chain for this analysis"
-- "What sessions were involved in this output?"
-
-The graph is the **traceability layer** — it maps every AI output back to the memories and relationships that informed it.
+- **`qdrant_id` on `MemoryChunk`**: Makes the graph self-contained — any node can resolve its vector directly from Qdrant without going through Postgres.
+- **`revoked` on `MemoryChunk`**: Soft delete via `WHERE m.revoked IS NULL OR m.revoked = false` in all traversals.
+- **Independent Celery retry budgets**: Each task (`task_upsert_qdrant`, `task_upsert_neo4j`, `task_extract_entities`) has its own `max_retries=3` with exponential backoff. Failure in one domain doesn't affect the others.
+- **`valid_until` null for open-ended**: Qdrant filter uses a `should` clause combining `DatetimeRange(gte=as_of)` + `IsNullCondition(is_null=True)` to correctly handle both bounded and unbounded memories.
+- **Entity allowlists**: `VALID_LABELS` and `VALID_REL_TYPES` filter hallucinated types before they reach Neo4j.
+- **MERGE everywhere**: All writes use `MERGE` for idempotency — re-running the same memory ingest produces the same nodes.

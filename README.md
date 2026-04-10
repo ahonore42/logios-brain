@@ -2,7 +2,7 @@
 
 Personal AI memory infrastructure. One shared knowledge layer that every AI you run can read from and write to through the Model Context Protocol (MCP).
 
-Built on three stores: PostgreSQL for the ledger, Qdrant for semantic retrieval, and Neo4j for the knowledge graph.
+Built on four stores: PostgreSQL for the ledger, Qdrant for semantic retrieval, Neo4j for the knowledge graph, and Redis for Celery task brokering.
 
 ---
 
@@ -10,22 +10,18 @@ Built on three stores: PostgreSQL for the ledger, Qdrant for semantic retrieval,
 
 Logios Brain captures every memory you store and makes it searchable by semantic similarity, source, or graph relationships. It tracks every AI generation with a full evidence receipt — which memories were retrieved, which graph nodes were traversed, which model ran, on which machine.
 
-When you run a skill (e.g. weekly review, competitive analysis, memory migration), Logios builds an evidence manifest before the AI produces output. The receipt is stored alongside the output so you can trace it later.
-
+When you run a skill (e.g. weekly review, competitive analysis), Logios builds an evidence manifest before the AI produces output. The receipt is stored alongside the output so you can trace it later.
 
 The server is the front door. When an AI wants to remember something or look something up, it knocks on this door.
 
-Behind that door are three helpers, each with one job:
-- PostgreSQL is the filing cabinet. Every single thing that ever gets remembered goes in here first. It never forgets and never loses anything.
-- Qdrant is the "find me something similar" helper. It turns memories into numbers so it can ask "what else did we capture that feels like this?" — even if the exact words are different. It needs the NVIDIA API to do the number-crunching, which is why there's a free API call happening there.
-- Neo4j is the map maker. It doesn't just store memories — it draws lines between them. "This project connects to this concept, which came up in that session." It's what lets you ask why things are related, not just what exists.
+Behind that door are four helpers, each with one job:
 
-The evidence layer at the bottom is the most important piece. Every time an AI produces something — an analysis, a plan, a summary — it doesn't just hand you the answer. It staples a receipt to it: here are the 5 memories I read, here's which connection in Neo4j I followed, here's which model produced this, at this time, on this machine. Six months later you can look back at any output and know exactly what the system was thinking.
-A concrete example of what each does:
-You capture a memory: "met with client about pricing strategy"
+- **PostgreSQL** is the filing cabinet. Every single thing that ever gets remembered goes in here first. It never forgets and never loses anything.
+- **Qdrant** is the "find me something similar" helper. It turns memories into numbers so it can ask "what else did we capture that feels like this?" — even if the exact words are different. It needs the NVIDIA API to do the number-crunching.
+- **Neo4j** is the map maker. It doesn't just store memories — it draws lines between them. "This project connects to this concept, which came up in that session." It's what lets you ask why things are related, not just what exists.
+- **Redis** is the task queue. It brokers background work — writing to Qdrant, Neo4j, and entity extraction happen asynchronously so the API response returns immediately.
 
-NVIDIA reads that sentence and returns a list of ~3000 numbers that mathematically represent its meaning. It then forgets it ever existed — it has no memory between calls.
-Qdrant stores those numbers permanently, tagged with your memory_id. Later when you ask "what do I know about client negotiations?", Qdrant compares the numbers for that query against every stored memory and returns the closest matches — without NVIDIA being involved at all in the search.
+The evidence layer is the most important piece. Every time an AI produces something — an analysis, a plan, a summary — it doesn't just hand you the answer. It staples a receipt to it: here are the memories I read, here's which connection in Neo4j I followed, here's which model produced this, at this time, on this machine. Six months later you can look back at any output and know exactly what the system was thinking.
 
 ---
 
@@ -36,31 +32,78 @@ Client (Claude Code, agent, Telegram bot)
            │
            │  HTTP + X-Brain-Key auth
            ▼
-     FastAPI MCP Server
+     FastAPI (app/)
      ┌────────────────────────────────┐
-     │  remember / search / recall /   │
-     │  graph_search / relate /        │
-     │  run_skill / record_generation  │
-     └──────┬──────────┬─────────┬─────┘
+     │  /memories/remember            │
+     │  /memories/search              │
+     │  /graph/recall                 │
+     │  /graph/search                 │
+     │  /skills/run                   │
+     │  /skills/record                │
+     │  /skills/evidence              │
+     └──────┬──────────┬─────────┬────┘
             │          │         │
             ▼          ▼         ▼
        PostgreSQL    Qdrant   Neo4j
       (pgvector)   (vectors) (graph)
         Ledger    Retriever  Reasoner
             │
-            └──► Gemini API (embeddings)
-
+            ▼
+      NVIDIA NIM API
+     (embeddings + entity extraction)
+            │
+            ▼
+         Redis
+     (Celery broker)
 ```
 
-### The Three Stores
+### The Four Stores
 
 | Store | Role | What lives here |
 |---|---|---|
-| **PostgreSQL** | Ledger | Every raw memory, chunk, entity, generation record, evidence receipt |
-| **Qdrant** | Retriever | Chunk embeddings (3072-dim) for semantic search |
-| **Neo4j** | Reasoner | Entity graph — projects, concepts, people, relationships, provenance |
+| **PostgreSQL** | Ledger | Every raw memory, chunk, entity, generation record, evidence receipt. SQLAlchemy async with Alembic migrations. |
+| **Qdrant** | Retriever | Chunk embeddings (4096-dim, `nvidia/nv-embed-v1`) for semantic search. Time-aware validity filtering via payload indexes. |
+| **Neo4j** | Reasoner | Entity graph — MemoryChunks, Events, Facts (with REPLACES versioning), EvidencePath, EvidenceStep chains, Outputs, Agents. |
+| **Redis** | Task broker | Celery broker for async background tasks: Qdrant writes, Neo4j writes, entity extraction. |
 
-The `memory_id` is the spine that connects all three stores.
+The `memory_id` / `qdrant_id` is the spine that connects all three stores.
+
+---
+
+## API Endpoints
+
+All endpoints except `/health` require `X-Brain-Key: YOUR_KEY` header or `?key=YOUR_KEY` query param.
+
+### Memories
+
+**`POST /memories/remember`** — Store a memory
+- Writes to Postgres (dedup via SHA256 fingerprint), dispatches a Celery chain: Qdrant write → Neo4j MemoryChunk+Event write → entity extraction
+- Returns the memory immediately; background tasks run async
+
+**`POST /memories/search`** — Semantic search
+- Embeds query via NVIDIA NIM, searches Qdrant (with optional time-bounded validity filter), hydrates from Postgres
+
+### Graph
+
+**`POST /graph/recall`** — Structured recall by source/date range
+- Direct Postgres SQL query, timezone-aware
+
+**`POST /graph/search`** — Traverse from a named entity
+- Neo4j Cypher traversal up to N hops to reachable MemoryChunks and Facts
+- Facts resolved through REPLACES chains to return newest valid version
+- MemoryChunks hydrated from Postgres
+
+### Skills
+
+**`POST /skills/run`** — Load a skill template with evidence
+- Looks up active skill, retrieves top-8 relevant memories as evidence manifest
+- Returns prompt template + evidence so an external AI can generate output
+
+**`POST /skills/record`** — Record an AI generation
+- Writes Generation to Postgres, builds full Neo4j evidence path (EvidencePath + USED/FOLLOWED/PRODUCED links)
+
+**`POST /skills/evidence`** — Retrieve evidence for a generation
+- Returns generation + enriched evidence records with full memory content
 
 ---
 
@@ -74,7 +117,7 @@ cd logios-brain
 docker compose up -d
 ```
 
-Wait for all three containers to be healthy:
+Wait for all containers to be healthy:
 
 ```bash
 docker compose ps
@@ -84,60 +127,37 @@ docker compose ps
 
 ```bash
 cp .env.example .env
-# Edit .env with your credentials — all required keys are documented inline
+# Edit .env with your credentials
 ```
 
 At minimum you need:
-- `GEMINI_API_KEY` — for embeddings (free tier, 3072-dim `text-embedding-004`)
+- `NVIDIA_API_KEY` — from build.nvidia.com (free tier available)
 - `NEO4J_PASSWORD` — generate with `openssl rand -hex 16`
 - `POSTGRES_PASSWORD` — generate with `openssl rand -hex 16`
 - `MCP_ACCESS_KEY` — the key your clients use to authenticate
 
-### 3. Run schema migrations
-
-```bash
-docker compose exec postgres psql -U logios -d logios_brain -f /schema/migrations/001_core_tables.sql
-docker compose exec postgres psql -U logios -d logios_brain -f /schema/migrations/002_skills_table.sql
-docker compose exec postgres psql -U logios -d logios_brain -f /schema/migrations/003_generations_table.sql
-docker compose exec postgres psql -U logios -d logios_brain -f /schema/migrations/004_evidence_table.sql
-docker compose exec postgres psql -U logios -d logios_brain -f /schema/migrations/005_access_control.sql
-docker compose exec postgres psql -U logios -d logios_brain -f /schema/migrations/006_functions.sql
-```
-
-### 4. Set up Python and start the server
+### 3. Run database migrations
 
 ```bash
 uv sync
-source .venv/bin/activate
-uvicorn server.main:app --port 8000 &
+alembic upgrade head
 ```
 
-### 5. Seed skills and test
+### 4. Start the server
 
 ```bash
-# Seed the six skill templates
-python scripts/seed_skills.py
-
-# Run connectivity tests (PostgreSQL, Qdrant, Neo4j, embeddings)
-python scripts/test_connection.py
+uvicorn app.main:app --port 8000 --reload
 ```
 
----
+### 5. Seed skills and test connectivity
 
-## MCP Tools
+```bash
+# Seed skill templates
+python scripts/seed_skills.py
 
-All tools authenticate via `X-Brain-Key: YOUR_KEY` header or `?key=YOUR_KEY` query param.
-
-| Tool | What it does |
-|---|---|
-| `POST /tools/remember` | Store a memory — writes to Postgres, Qdrant (embedding), and Neo4j (entity extraction) |
-| `POST /tools/search` | Semantic search over memories — Qdrant vector + Postgres hydration |
-| `POST /tools/recall` | Structured recall by source or date range |
-| `POST /tools/graph_search` | Traverse the knowledge graph from an entity (APOC subgraph) |
-| `POST /tools/relate` | Manually create a relationship between two entities |
-| `POST /tools/run_skill` | Load a skill template, run evidence search, return prompt + manifest (no LLM call) |
-| `POST /tools/record_generation` | Record an AI generation with evidence manifest |
-| `POST /tools/get_evidence` | Retrieve the evidence receipt for a generation |
+# Test all store connections
+python scripts/test_connection.py
+```
 
 Health check:
 
@@ -146,27 +166,29 @@ curl http://localhost:8000/health
 # {"status":"ok"}
 ```
 
-Tool list:
+---
 
-```bash
-curl -H "X-Brain-Key: YOUR_KEY" http://localhost:8000/mcp/tools
-```
+## Entity Extraction
+
+Entity extraction runs as the third link in the Celery chain (after Qdrant and Neo4j writes are confirmed). It calls `microsoft/phi-3-mini-128k-instruct` via NVIDIA NIM to extract named entities from memory content, then writes labeled nodes to Neo4j.
+
+**Valid entity labels**: `Project`, `Person`, `Concept`, `Decision`, `Tool`, `Event`, `Location`, `Document`
+
+**Valid relationship types**: `RELATES_TO`, `PART_OF`, `CREATED_BY`, `MENTIONS`, `CAUSED_BY`
+
+Extraction is conservative — only significant anchors worth traversing from, not every noun mentioned. Extracted entities are validated against allowlists before writing to Neo4j. The system prompt instructs the model to extract only entities that appear verbatim in the source text.
 
 ---
 
-## Security
+## Evidence Layer
 
-PostgreSQL is bound to `127.0.0.1` only — no external network access. The `logios` database user is the sole application user with full access to the `logios_brain` database.
+Every AI generation gets a full provenance trace in Neo4j:
 
-For dashboards or read-only access, create a separate user:
+- **EvidencePath** — records which memories were read, which graph edge types were traversed, which agent acted, which machine ran it, and the timestamp
+- **EvidenceStep** — ordered reasoning chain: `read_memory` → `query_policy` → `merge_context` → `generate_output`, linked via `NEXT` relationships
+- **Facts** support `REPLACES` versioning chains — `get_latest_fact()` resolves to the newest valid version, not superseded ones
 
-```sql
-create user logios_readonly with password 'your_generated_password';
-grant connect on database logios_brain to logios_readonly;
-grant usage on schema public to logios_readonly;
-grant select on all tables in schema public to logios_readonly;
-alter default privileges in schema public grant select on tables to logios_readonly;
-```
+On the Postgres side, `Evidence` rows store each retrieval item with `generation_id`, `memory_id`, `chunk_id`, `neo4j_node_id`, `relevance_score`, `retrieval_type`, and `rank`. The `evidence_with_content` join view materializes full memory content for evidence receipts.
 
 ---
 
@@ -177,14 +199,20 @@ alter default privileges in schema public grant select on tables to logios_reado
 | `USE_LOCAL_STORES` | Use local Docker stores | `true` |
 | `USE_SUPABASE` | Use cloud Supabase instead | `false` |
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://logios:...@127.0.0.1:5432/logios_brain` |
+| `SUPABASE_URL` | Supabase project URL | — |
+| `SUPABASE_SERVICE_KEY` | Supabase service key | — |
 | `QDRANT_URL` | Qdrant HTTP URL | `http://localhost:6333` |
-| `NEO4J_URI` | Neo4j bolt URL | `bolt://localhost:7687` |
+| `QDRANT_API_KEY` | Qdrant API key | `None` |
+| `REDIS_URL` | Redis connection (Celery broker) | `redis://localhost:6379/0` |
+| `NEO4J_URI` | Neo4j Bolt URL | `bolt://localhost:7687` |
 | `NEO4J_USERNAME` | Neo4j user | `neo4j` |
 | `NEO4J_PASSWORD` | Neo4j password | — |
-| `GEMINI_API_KEY` | Gemini API key for embeddings | — |
+| `TENANT_ID` | Single-tenant ID | `default` |
+| `NVIDIA_API_KEY` | NVIDIA NIM API key | — |
+| `EMBEDDING_MODEL` | NVIDIA embedding model | `nvidia/nv-embed-v1` |
+| `EMBEDDING_DIM` | Embedding dimensions | `4096` |
 | `MCP_ACCESS_KEY` | Access key for tool auth | — |
-| `OLLAMA_URL` | Ollama URL for entity extraction | `http://localhost:11434` |
-| `ENTITY_MODEL` | Ollama model for entity extraction | `mistral:7b` |
+| `SERVER_PORT` | FastAPI server port | `8000` |
 
 ---
 
@@ -192,38 +220,56 @@ alter default privileges in schema public grant select on tables to logios_reado
 
 ```
 logios-brain/
-├── docker-compose.yml        # PostgreSQL, Qdrant, Neo4j containers
-├── .env                    # Credentials (gitignored)
-├── .env.example            # Template with all variables documented
+├── docker-compose.yml          # postgres, qdrant, neo4j, redis
 ├── conf/
-│   ├── neo4j.conf          # Neo4j config (strict_validation disabled before APOC loads)
-│   └── apoc.conf           # APOC plugin settings (loaded after plugin init)
-├── schema/migrations/      # Six SQL migration files
-├── server/
-│   ├── main.py             # FastAPI MCP server
-│   ├── config.py            # Environment variable resolver
-│   ├── embeddings.py        # Gemini text-embedding-004
-│   ├── entity_extraction.py # Ollama LLM entity extraction (best-effort)
-│   ├── db/
-│   │   ├── postgres.py      # psycopg2 ThreadedConnectionPool client
-│   │   ├── supabase.py      # Supabase client (cloud alternative)
-│   │   ├── qdrant.py        # Qdrant client
-│   │   └── neo4j_client.py  # Neo4j GraphDatabase driver
-│   └── tools/
-│       ├── remember.py      # Write path: memory + embedding + entity extraction
-│       ├── search.py        # Read path: vector search + graph search + recall
-│       ├── relate.py        # Manual graph relationship creation
-│       ├── run_skill.py     # Skill execution with evidence manifest
-│       └── get_evidence.py  # Generation receipt retrieval
+│   ├── neo4j.conf             # Neo4j config (strict_validation disabled before APOC)
+│   └── apoc.conf              # APOC plugin settings
+├── alembic/                   # Database migrations
+├── alembic.ini
+├── app/
+│   ├── main.py                # FastAPI entrypoint, route mounting
+│   ├── celery.py              # Celery app with Redis broker
+│   ├── config.py              # Environment variable resolver
+│   ├── dependencies.py         # verify_key() auth dependency
+│   ├── embeddings.py          # NVIDIA NIM embeddings (nvidia/nv-embed-v1)
+│   ├── entity_extraction.py   # NVIDIA NIM entity extraction (phi-3-mini)
+│   ├── tasks.py               # Celery tasks: upsert_qdrant, upsert_neo4j, extract_entities
+│   ├── database.py            # SQLAlchemy async engine + session
+│   ├── models.py              # SQLAlchemy models
+│   ├── schemas.py             # Pydantic request/response schemas
+│   ├── routes/
+│   │   ├── health.py          # GET /health
+│   │   ├── memory.py          # POST /memories/remember, /memories/search
+│   │   ├── graph.py           # POST /graph/recall, /graph/search
+│   │   └── skills.py          # POST /skills/run, /skills/record, /skills/evidence
+│   └── db/
+│       ├── qdrant.py          # Qdrant client + payload indexes
+│       └── neo4j/
+│           ├── __init__.py     # Public API exports
+│           ├── client.py       # Neo4j driver singleton + indexes
+│           ├── nodes.py        # Typed node dataclasses
+│           ├── relationships.py # RelationshipType enum
+│           ├── transactions.py # write_memory_chunk, write_event, get_latest_fact
+│           └── evidence.py     # create_evidence_path, add_evidence_step, link_evidence_to_output
 ├── scripts/
-│   ├── test_connection.py   # Connectivity verification script
-│   ├── seed_skills.py       # Seeds six skill templates to Postgres
-│   ├── backup.sh            # pg_dump + Qdrant snapshot + neo4j-admin backup
-│   └── deploy.sh           # Hetzner VPS deployment script
-└── .github/workflows/
-    ├── ci.yml              # ruff, mypy, import chain on push/PR
-    └── deploy.yml           # Docker build/push + Hetzner SSH deploy
+│   ├── seed_skills.py         # Seeds skill templates to Postgres
+│   └── test_connection.py     # Connectivity verification
+└── tests/
+    ├── conftest.py             # Pytest fixtures, CELERY_TASK_ALWAYS_EAGER=true
+    ├── test_entity_extraction.py       # 8 mocked I/O tests
+    └── test_entity_extraction_live.py  # 8 live integration tests
 ```
+
+---
+
+## CI/CD
+
+Every push to `main` and every PR runs:
+
+- `ruff format` — code formatting
+- `ruff check` — linting
+- `mypy --ignore-missing-imports` — type checking
+- `pytest` — all tests (mocked + live integration)
 
 ---
 
@@ -233,21 +279,8 @@ logios-brain/
 # On the VPS, clone once:
 git clone https://github.com/YOUR_HANDLE/logios-brain.git ~/logios-brain
 
-# Run the deploy script (from your local machine):
+# Run the deploy script from your local machine:
 HETZNER_IP=your.vps.ip HETZNER_USER=your_user ./scripts/deploy.sh
 ```
 
 Prerequisites on Hetzner: Docker, Docker Compose, Python 3.11, SSH access.
-
----
-
-## CI/CD
-
-Every push to `main` and every PR runs:
-
-- `ruff format` — code formatting
-- `ruff check --fix` — linting with auto-fix
-- `mypy --ignore-missing-imports` — type checking
-- Import chain verification — all modules must resolve without errors
-
-The deploy workflow builds and pushes a Docker image to GitHub Container Registry, then SSHs to Hetzner to pull and restart the service.
