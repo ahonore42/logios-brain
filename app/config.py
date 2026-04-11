@@ -37,6 +37,7 @@ NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 EMBEDDING_MODEL = "nvidia/nv-embed-v1"
 EMBEDDING_DIM = 4096
 
-# ── MCP Server ───────────────────────────────────────────────────────────────
-MCP_ACCESS_KEY = os.getenv("MCP_ACCESS_KEY", "")
+# ── Logios Brain Auth ───────────────────────────────────────────────────────────
+# Primary key name; falls back to MCP_ACCESS_KEY for existing deployments
+LOGIOS_BRAIN_KEY = os.getenv("LOGIOS_BRAIN_KEY") or os.getenv("MCP_ACCESS_KEY", "")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))

@@ -64,7 +64,6 @@ class GetEvidenceRequest(BaseModel):
 
 
 class CreateFactRequest(BaseModel):
-    tenant_id: str
     content: str
     valid_from: datetime
     valid_until: Optional[datetime] = None

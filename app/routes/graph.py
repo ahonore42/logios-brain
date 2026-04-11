@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.db.neo4j import get_driver, get_latest_fact, write_fact
 from app.db.neo4j.client import NodeId, prefixed_id
-from app.dependencies import verify_key
+from app.dependencies import verify_key, AuthContext
 from app.models import Memory
 
 # from app.models import Entity  # TODO: re-enable when entity-only search is needed
@@ -206,7 +206,7 @@ async def graph_search_route(
 @router.post("/facts", response_model=FactOut, status_code=201)
 async def create_fact_route(
     data: CreateFactRequest,
-    _=Depends(verify_key),
+    auth: AuthContext = Depends(verify_key),
 ):
     """
     Manually assert a Fact into the graph.
@@ -219,7 +219,7 @@ async def create_fact_route(
     fact_id = prefixed_id(NodeId.FACT, str(uuid.uuid4()))
     fact = Fact(
         id=fact_id,
-        tenant_id=data.tenant_id,
+        tenant_id=auth.tenant_id,
         content=data.content,
         valid_from=data.valid_from.isoformat(),
         valid_until=data.valid_until.isoformat() if data.valid_until else "2099-12-31T23:59:59Z",

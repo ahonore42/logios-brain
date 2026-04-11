@@ -6,9 +6,9 @@ from dataclasses import dataclass
 class MemoryChunk:
     """A memory stored in the system. Mirrors PostgreSQL memory.id."""
     id: str
-    tenant_id: str
-    timestamp_utc: str
-    type: str  # "conversation", "decision", "event", "fact-summary"
+    tenant_id: str = ""  # kept for schema compatibility; hardcoded on write
+    timestamp_utc: str = ""
+    type: str = ""  # "conversation", "decision", "event", "fact-summary"
     qdrant_id: str | None = None  # cross-reference to vector store
     revoked: bool = False  # soft-deletion — filters apply at traversal time
     version: int = 1
@@ -20,21 +20,21 @@ class MemoryChunk:
 class Event:
     """Something that happened — meeting, decision, tool call, approval, error."""
     id: str
-    tenant_id: str
-    agent_id: str | None
-    type: str  # "meeting", "decision", "tool_call", "approval", "error"
-    description: str
-    timestamp_utc: str
+    tenant_id: str = ""  # kept for schema compatibility; hardcoded on write
+    agent_id: str | None = None
+    type: str = ""  # "meeting", "decision", "tool_call", "approval", "error"
+    description: str = ""
+    timestamp_utc: str = ""
 
 
 @dataclass
 class Fact:
     """A structured, time-bounded piece of knowledge."""
     id: str
-    tenant_id: str
-    content: str
-    valid_from: str
-    valid_until: str
+    tenant_id: str = ""  # kept for schema compatibility; hardcoded on write
+    content: str = ""
+    valid_from: str = ""
+    valid_until: str = ""
     version: int = 1
 
 

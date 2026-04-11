@@ -82,7 +82,6 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
     #    Each task has its own retry budget.
     chunk_node_dict = {
         "id": prefixed_id(NodeId.MEMORY_CHUNK, str(memory_id)),
-        "tenant_id": config.TENANT_ID,
         "timestamp_utc": str(memory.captured_at),
         "type": data.source,
         "revoked": data.metadata.get("revoked", False),
@@ -116,7 +115,6 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
         task_extract_entities.s(
             content=data.content,
             chunk_node_id=prefixed_id(NodeId.MEMORY_CHUNK, str(memory_id)),
-            tenant_id=config.TENANT_ID,
         ),
     ).delay()
 

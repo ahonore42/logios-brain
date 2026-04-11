@@ -57,7 +57,6 @@ def task_upsert_neo4j(
     try:
         chunk = MemoryChunk(
             id=chunk_node["id"],
-            tenant_id=chunk_node["tenant_id"],
             timestamp_utc=chunk_node["timestamp_utc"],
             type=chunk_node["type"],
             qdrant_id=qdrant_id,
@@ -83,7 +82,6 @@ def task_extract_entities(
     _result,  # absorbs return value piped from task_upsert_neo4j (None)
     content: str,
     chunk_node_id: str,
-    tenant_id: str,
 ) -> None:
     """
     Extract entities from memory content and write labeled nodes to Neo4j.
@@ -113,7 +111,7 @@ def task_extract_entities(
                 with session.begin_transaction() as tx:
                     tx.run(
                         f"""
-                        MERGE (e:{label} {{name: $name, tenant_id: $tenant_id}})
+                        MERGE (e:{label} {{name: $name}})
                         ON CREATE SET e.created_at = datetime()
                         ON MATCH SET e.last_seen = datetime()
                         WITH e
@@ -121,7 +119,6 @@ def task_extract_entities(
                         MERGE (e)-[:DESCRIBES]->(m)
                         """,
                         name=name,
-                        tenant_id=tenant_id,
                         chunk_id=chunk_node_id,
                     )
 
@@ -133,14 +130,13 @@ def task_extract_entities(
                             continue
                         tx.run(
                             f"""
-                            MERGE (a {{name: $source, tenant_id: $tenant_id}})
-                            MERGE (b {{name: $target, tenant_id: $tenant_id}})
+                            MERGE (a {{name: $source}})
+                            MERGE (b {{name: $target}})
                             MERGE (a)-[r:{rel_type}]->(b)
                             ON CREATE SET r.created_at = datetime()
                             """,
                             source=name,
                             target=target,
-                            tenant_id=tenant_id,
                         )
                     tx.commit()
 
