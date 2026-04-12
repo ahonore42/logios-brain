@@ -48,6 +48,9 @@ jobs:
           done
           exit 1
 
+      - name: Run database migrations
+        run: uv run alembic upgrade head
+
       - name: Lint with ruff
         run: |
           uv run ruff format app/ scripts/
