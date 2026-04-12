@@ -122,6 +122,7 @@ async def verify_setup(
         session.add(owner)
     else:
         existing.email = email
+        assert hashed_password is not None
         existing.hashed_password = hashed_password
         existing.is_setup = True
         owner = existing

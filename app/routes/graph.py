@@ -219,7 +219,7 @@ async def create_fact_route(
     fact_id = prefixed_id(NodeId.FACT, str(uuid.uuid4()))
     fact = Fact(
         id=fact_id,
-        tenant_id=auth.tenant_id,
+        tenant_id="default",
         content=data.content,
         valid_from=data.valid_from.isoformat(),
         valid_until=data.valid_until.isoformat()
@@ -234,8 +234,8 @@ async def create_fact_route(
     return FactOut(
         id=fact.id,
         content=fact.content,
-        valid_from=fact.valid_from,
-        valid_until=fact.valid_until,
+        valid_from=data.valid_from,
+        valid_until=data.valid_until,
         version=fact.version,
     )
 

@@ -55,6 +55,9 @@ EMAIL_OTP_EXPIRE_MINUTES = int(os.getenv("EMAIL_OTP_EXPIRE_MINUTES", "10"))
 # Deployer secret — protects initial owner account creation. Only the person
 # with access to the server environment can set up the first owner.
 SECRET_KEY = os.getenv("SECRET_KEY", "")
+
+# Tenant ID — scopes multi-tenant data. Single-tenant deployments use "default".
+TENANT_ID = os.getenv("TENANT_ID", "default")
 if not SECRET_KEY:
     raise RuntimeError("SECRET_KEY environment variable must be set")
 
