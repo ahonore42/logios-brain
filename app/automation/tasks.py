@@ -1,9 +1,12 @@
 """Background tasks for vector and graph storage writes."""
 
+from datetime import datetime, timedelta, timezone
+
 from qdrant_client.models import PointStruct
 
 from app.automation.celery import celery_app
 from app.db import qdrant as qdrant_db
+from app.db.database import get_engine
 from app.db.neo4j import write_memory_chunk, MemoryChunk
 
 
@@ -143,3 +146,122 @@ def task_extract_entities(
 
     except Exception as exc:
         self.retry(exc=exc, countdown=2**self.request.retries)
+
+
+def _memory_digest_sync(
+    days_unused: int = 30,
+    days_recent: int = 7,
+    low_score_threshold: float = 0.3,
+) -> dict:
+    """
+    Generate a memory digest for human review.
+
+    Returns three categories:
+    - never_retrieved: memories with no associated Evidence rows in the last N days
+    - low_relevance: memories with low relevance_score in recent evidence
+    - recent_checkpoints: type='checkpoint' memories created in the last week
+
+    Use this output to decide which memories to promote to type='identity',
+    rewrite, or delete.
+    """
+    from sqlalchemy import text
+
+    engine = get_engine()
+
+    with engine.connect() as conn:
+        now = datetime.now(timezone.utc)
+        cutoff_unused = now - timedelta(days=days_unused)
+        cutoff_recent = now - timedelta(days=days_recent)
+
+        # Memories never retrieved in last N days
+        never_retrieved = conn.execute(
+            text("""
+                SELECT m.id, m.content, m.type, m.captured_at
+                FROM memories m
+                LEFT JOIN evidence e ON e.memory_id = m.id
+                  AND e.created_at > :cutoff
+                WHERE m.type IN ('standard', 'checkpoint')
+                  AND m.metadata_->'revoked' IS DISTINCT FROM 'true'
+                  AND e.id IS NULL
+                ORDER BY m.captured_at DESC
+                LIMIT 20
+            """),
+            {"cutoff": cutoff_unused},
+        ).fetchall()
+
+        # Memories with low relevance scores in recent evidence
+        low_relevance = conn.execute(
+            text("""
+                SELECT DISTINCT m.id, m.content, m.type, m.captured_at,
+                       e.relevance_score
+                FROM memories m
+                JOIN evidence e ON e.memory_id = m.id
+                WHERE e.created_at > :cutoff
+                  AND e.relevance_score < :threshold
+                  AND m.type IN ('standard', 'checkpoint')
+                ORDER BY e.relevance_score ASC
+                LIMIT 20
+            """),
+            {"cutoff": cutoff_recent, "threshold": low_score_threshold},
+        ).fetchall()
+
+        # Recent checkpoints
+        recent_checkpoints = conn.execute(
+            text("""
+                SELECT m.id, m.content, m.captured_at, m.metadata_
+                FROM memories m
+                WHERE m.type = 'checkpoint'
+                  AND m.captured_at > :cutoff
+                ORDER BY m.captured_at DESC
+                LIMIT 10
+            """),
+            {"cutoff": cutoff_recent},
+        ).fetchall()
+
+    return {
+        "generated_at": now.isoformat(),
+        "days_unused": days_unused,
+        "never_retrieved": [
+            {
+                "id": str(row.id),
+                "content": row.content[:200],
+                "type": row.type,
+                "captured_at": row.captured_at.isoformat() if row.captured_at else None,
+            }
+            for row in never_retrieved
+        ],
+        "low_relevance": [
+            {
+                "id": str(row.id),
+                "content": row.content[:200],
+                "type": row.type,
+                "relevance_score": row.relevance_score,
+                "captured_at": row.captured_at.isoformat() if row.captured_at else None,
+            }
+            for row in low_relevance
+        ],
+        "recent_checkpoints": [
+            {
+                "id": str(row.id),
+                "content": row.content[:200],
+                "captured_at": row.captured_at.isoformat() if row.captured_at else None,
+                "turn_count": row.metadata_.get("turn_count") if row.metadata_ else None,
+            }
+            for row in recent_checkpoints
+        ],
+    }
+
+
+@celery_app.task(bind=True, max_retries=3)
+def task_memory_digest(
+    self,
+    days_unused: int = 30,
+    days_recent: int = 7,
+    low_score_threshold: float = 0.3,
+) -> dict:
+    """Celery wrapper for _memory_digest_sync."""
+    return _memory_digest_sync(
+        days_unused=days_unused,
+        days_recent=days_recent,
+        low_score_threshold=low_score_threshold,
+    )
