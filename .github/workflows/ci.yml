@@ -9,6 +9,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: logios
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: logios_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -17,6 +31,22 @@ jobs:
 
       - name: Set up Python and install dependencies
         run: uv sync
+
+      - name: Set required env vars for tests
+        run: |
+          echo "DATABASE_URL=postgresql+asyncpg://logios:test-password@localhost:5432/logios_test" >> $GITHUB_ENV
+          echo "SECRET_KEY=ci-test-secret-key-for-testing-only" >> $GITHUB_ENV
+          echo "ACCESS_SECRET_KEY=ci-test-secret-key-for-testing-only" >> $GITHUB_ENV
+          echo "EMAILS_ENABLED=false" >> $GITHUB_ENV
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 -U logios && exit 0
+            echo "Waiting for postgres... ($i/30)"
+            sleep 2
+          done
+          exit 1
 
       - name: Lint with ruff
         run: |
@@ -34,6 +64,9 @@ jobs:
       - name: Verify no missing imports in tools
         run: |
           uv run python -c "from app.db import neo4j, qdrant"
-          uv run python -c "from app import embeddings, entity_extraction"
+          uv run python -c "from app.genai import embeddings, entity_extraction"
           uv run python -c "from app.routes import memory, graph, skills, health"
           echo "All imports OK"
+
+      - name: Run tests
+        run: uv run pytest tests/ -q --tb=short
