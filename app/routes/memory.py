@@ -1,6 +1,7 @@
 """Routes for memory operations — remember and search."""
 
 import uuid
+from uuid import UUID
 from typing import List
 
 from celery import chain
@@ -18,8 +19,10 @@ from app.models import Chunk, Memory
 from app.schemas import (
     ContextRequest,
     ContextResponse,
+    ForgetRequest,
     IdentityRequest,
     IdentityResponse,
+    IdentityUpdateRequest,
     MemoryOut,
     RememberRequest,
     SearchRequest,
@@ -301,4 +304,178 @@ async def create_identity_route(
     return IdentityResponse(
         memory=memory,
         message="Identity memory created. It will be loaded at the start of every session.",
+    )
+
+
+@router.get("/identity", response_model=list[MemoryOut], status_code=200)
+async def list_identity_route(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_owner),
+) -> list[MemoryOut]:
+    """List all type='identity' memories. Owner-only."""
+    stmt = select(Memory).where(Memory.type == "identity")
+    result = await db.execute(stmt)
+    return [MemoryOut.model_validate(r) for r in result.scalars().all()]
+
+
+@router.patch("/identity/{memory_id}", response_model=MemoryOut, status_code=200)
+async def update_identity_route(
+    memory_id: UUID,
+    data: IdentityUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_owner),
+) -> MemoryOut:
+    """
+    Update an identity memory. Owner-only.
+
+    Only updates fields that are provided (partial update).
+    """
+    stmt = select(Memory).where(Memory.id == memory_id, Memory.type == "identity")
+    result = await db.execute(stmt)
+    memory = result.scalar_one_or_none()
+
+    if not memory:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Identity memory not found.")
+
+    if data.content is not None:
+        memory.content = data.content
+    if data.metadata is not None:
+        memory.metadata_ = memory.metadata_ | data.metadata
+
+    await db.commit()
+    await db.refresh(memory)
+    return MemoryOut.model_validate(memory)
+
+
+@router.delete("/identity/{memory_id}", status_code=204)
+async def delete_identity_route(
+    memory_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_owner),
+) -> None:
+    """
+    Delete an identity memory. Owner-only.
+    """
+    stmt = select(Memory).where(Memory.id == memory_id, Memory.type == "identity")
+    result = await db.execute(stmt)
+    memory = result.scalar_one_or_none()
+
+    if not memory:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Identity memory not found.")
+
+    await db.delete(memory)
+    await db.commit()
+
+
+@router.post("/forget", status_code=200)
+async def forget_memories(
+    data: ForgetRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_key),
+) -> dict:
+    """
+    Revoke memories so they no longer appear in retrieval.
+
+    Accepts either a list of memory_ids or a semantic query. Memories matching
+    the query are looked up via Qdrant and then revoked. Revoked memories have
+    their Postgres row updated and their Qdrant payload marked revoked=true.
+    They are excluded from /memories/search and /memories/context results.
+    """
+    if not data.memory_ids and not data.query:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=422,
+            detail="Must provide memory_ids or query.",
+        )
+
+    # Step 1: resolve memory_ids
+    memory_ids: list[UUID] = []
+    if data.memory_ids:
+        memory_ids = data.memory_ids
+
+    if data.query:
+        # Semantic search to find matching memories
+        vector = await embeddings.embed_query(data.query)
+        response = qdrant_db.get_qdrant().query_points(
+            collection_name=qdrant_db.COLLECTION_NAME,
+            query=vector,
+            limit=50,
+            score_threshold=0.0,
+            with_payload=True,
+        )
+        for point in response.points:
+            if point.payload and "memory_id" in point.payload:
+                try:
+                    memory_ids.append(UUID(point.payload["memory_id"]))
+                except ValueError:
+                    pass
+
+    if not memory_ids:
+        return {"revoked": 0}
+
+    # Deduplicate by string representation
+    seen: set[str] = set()
+    unique: list[UUID] = []
+    for mid in memory_ids:
+        key = str(mid)
+        if key not in seen:
+            seen.add(key)
+            unique.append(mid)
+    uuid_objects = unique
+
+    # Step 2: Revoke in Postgres
+    stmt = select(Memory).where(Memory.id.in_(uuid_objects))
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+
+    for memory in rows:
+        memory.metadata_ = {**memory.metadata_, "revoked": True}
+    await db.commit()
+
+    # Step 3: Mark revoked in Qdrant payload for each
+    qdrant_client = qdrant_db.get_qdrant()
+    for memory in rows:
+        # Find the chunk to get qdrant_id
+        chunk_stmt = select(Chunk).where(Chunk.memory_id == memory.id)
+        chunk_result = await db.execute(chunk_stmt)
+        chunk = chunk_result.scalar_one_or_none()
+        if chunk and chunk.qdrant_id:
+            qdrant_client.set_payload(
+                collection_name=qdrant_db.COLLECTION_NAME,
+                payload={"revoked": True},
+                points=[str(chunk.qdrant_id)],
+            )
+
+    return {"revoked": len(rows)}
+
+
+@router.get("/digest", status_code=200)
+async def memory_digest_route(
+    days_unused: int = 30,
+    days_recent: int = 7,
+    low_score_threshold: float = 0.3,
+    _=Depends(verify_key),
+) -> dict:
+    """
+    Generate a memory digest for human review.
+
+    Returns three categories of memories:
+    - never_retrieved: memories with no associated Evidence rows in the last N days
+    - low_relevance: memories with low relevance_score in recent evidence
+    - recent_checkpoints: type='checkpoint' memories created in the last N days
+
+    Use this output to decide which memories to promote to type='identity',
+    rewrite, or delete via the /memories/identity and /memories/forget endpoints.
+    """
+    from app.automation.tasks import _memory_digest_sync
+
+    return _memory_digest_sync(
+        days_unused=days_unused,
+        days_recent=days_recent,
+        low_score_threshold=low_score_threshold,
     )
