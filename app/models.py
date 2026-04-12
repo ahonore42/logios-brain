@@ -33,6 +33,9 @@ class Memory(Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(String, nullable=False)
+    type: Mapped[str] = mapped_column(
+        String, nullable=False, default="standard", index=True
+    )
     session_id: Mapped[Optional[UUID]] = mapped_column(pg_UUID)
     captured_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -55,7 +58,12 @@ class Memory(Base):
             "source IN ('telegram', 'claude', 'agent', 'manual', 'import', 'system')",
             name="memories_source_check",
         ),
+        CheckConstraint(
+            "type IN ('standard', 'identity', 'checkpoint', 'manual')",
+            name="memories_type_check",
+        ),
         Index("idx_memories_source", "source"),
+        Index("idx_memories_type", "type"),
         Index("idx_memories_captured_at", "captured_at"),
         Index("idx_memories_session_id", "session_id"),
         Index("idx_memories_metadata", "metadata", postgresql_using="gin"),
