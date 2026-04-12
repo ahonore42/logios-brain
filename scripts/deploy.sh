@@ -16,7 +16,7 @@
 #   - .env file present at $HOME/logios-brain/.env
 #   - Docker and docker compose installed on VPS
 #   - Schema migrations applied: psql -f $HOME/logios-brain/schema/migrations/*.sql
-#   - Python 3.11 venv created at $HOME/logios-brain/server/venv
+#   - Python 3.11 venv created at $HOME/logios-brain/venv
 
 set -euo pipefail
 
@@ -36,10 +36,19 @@ ssh "$SSH_USER@$HETZNER_IP" << 'ENDSSH'
   APP_DIR="$HOME/logios-brain"
   VENV_DIR="$APP_DIR/venv"
 
+  # Load env vars so we can reference ${POSTGRES_DB} etc.
+  set -a
+  source "$APP_DIR/.env" 2>/dev/null || true
+  set +a
+
   echo "==> Pulling latest code..."
   cd "$APP_DIR"
+  git fetch origin main
   git checkout main
   git pull
+
+  echo "==> Syncing dependencies..."
+  uv sync
 
   echo "==> Pulling Docker images..."
   docker compose pull
@@ -49,7 +58,7 @@ ssh "$SSH_USER@$HETZNER_IP" << 'ENDSSH'
 
   echo "==> Waiting for PostgreSQL to be healthy..."
   for i in $(seq 1 30); do
-    if docker compose exec -T postgres pg_isready -U logios -d logios_brain > /dev/null 2>&1; then
+    if docker compose exec -T postgres pg_isready -U logios -d "${POSTGRES_DB}" > /dev/null 2>&1; then
       echo "PostgreSQL is healthy."
       break
     fi

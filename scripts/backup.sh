@@ -6,6 +6,11 @@ set -euo pipefail
 
 BACKUP_DIR="$HOME/logios-brain/backups"
 COMPOSE="$HOME/logios-brain/docker-compose.yml"
+
+# Load env vars from .env (for POSTGRES_DB)
+set -a
+source "$HOME/logios-brain/.env" 2>/dev/null || true
+set +a
 DATE=$(date +%Y%m%d_%H%M%S)
 LOG="${BACKUP_DIR}/backup.log"
 
@@ -22,7 +27,7 @@ log "PostgreSQL: dumping..."
 
 docker exec logios-postgres pg_dump \
   -U logios \
-  -d logios_brain \
+  -d "${POSTGRES_DB}" \
   --format=custom \
   --file=/tmp/logios_brain.dump
 
