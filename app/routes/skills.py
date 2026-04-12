@@ -126,19 +126,20 @@ async def _record_generation(
 
     # Add ordered reasoning steps
     step_types = [
-        ("read_memory", 0),
-        ("query_policy", 1),
-        ("merge_context", 2),
-        ("generate_output", 3),
+        ("read_memory", 0, None),
+        ("query_policy", 1, None),
+        ("merge_context", 2, None),
+        ("generate_output", 3, data.chain_of_thought),
     ]
     prev_step_id = None
-    for step_type, order in step_types:
+    for step_type, order, content in step_types:
         step_id = prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4()))
         add_evidence_step(
             evidence_path_id=prefixed_id(NodeId.EVIDENCE_PATH, str(generation.id)),
             step_id=step_id,
             step_type=step_type,
             order=order,
+            content=content,
             prev_step_id=prev_step_id,
         )
         prev_step_id = step_id
