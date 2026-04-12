@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.db.database import get_db
 from app.db.neo4j import get_driver, get_latest_fact, write_fact
 from app.db.neo4j.client import NodeId, prefixed_id
 from app.dependencies import verify_key, AuthContext
@@ -222,7 +222,9 @@ async def create_fact_route(
         tenant_id=auth.tenant_id,
         content=data.content,
         valid_from=data.valid_from.isoformat(),
-        valid_until=data.valid_until.isoformat() if data.valid_until else "2099-12-31T23:59:59Z",
+        valid_until=data.valid_until.isoformat()
+        if data.valid_until
+        else "2099-12-31T23:59:59Z",
         version=data.version,
     )
 
@@ -252,6 +254,7 @@ async def get_fact_route(
     resolved = get_latest_fact(fact_id)
     if resolved is None:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Fact not found")
 
     return FactOut(

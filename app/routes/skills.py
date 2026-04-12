@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.db.database import get_db
 from app.dependencies import verify_key
 from app.models import Evidence, EvidenceWithContent, Generation, Skill
 from app.schemas import (

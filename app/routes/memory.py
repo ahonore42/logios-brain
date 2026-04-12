@@ -9,14 +9,18 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import JSON
 
-from app import config, embeddings
-from app.database import get_db
+from app.genai import embeddings
+from app.db.database import get_db
 from app.db import qdrant as qdrant_db
 from app.db.neo4j.client import NodeId, prefixed_id
 from app.dependencies import verify_key
 from app.models import Chunk, Memory
 from app.schemas import MemoryOut, RememberRequest, SearchRequest
-from app.tasks import task_extract_entities, task_upsert_neo4j, task_upsert_qdrant
+from app.automation.tasks import (
+    task_extract_entities,
+    task_upsert_neo4j,
+    task_upsert_qdrant,
+)
 
 
 class JsonDict(JSON):
