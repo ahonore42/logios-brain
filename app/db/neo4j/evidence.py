@@ -73,6 +73,7 @@ def add_evidence_step(
     step_type: str,
     order: int,
     prev_step_id: str | None = None,
+    content: str | None = None,
     timeout: float | None = None,
 ) -> None:
     """
@@ -80,19 +81,29 @@ def add_evidence_step(
 
     If prev_step_id is provided, links the new step as NEXT after it,
     building an ordered reasoning chain.
+
+    content is stored on the EvidenceStep node — use it to capture
+    the agent's chain of thought for the generate_output step.
     """
     driver = get_driver()
     with driver.session() as session:
         with session.begin_transaction() as tx:
+            set_clause = "s.step_type = $step_type, s.order = $order"
+            params: dict = {
+                "id": step_id,
+                "step_type": step_type,
+                "order": order,
+            }
+            if content is not None:
+                set_clause += ", s.content = $content"
+                params["content"] = content
+
             tx.run(
-                """
-                MERGE (s:EvidenceStep {id: $id})
-                SET s.step_type = $step_type,
-                    s.order = $order
+                f"""
+                MERGE (s:EvidenceStep {{id: $id}})
+                SET {set_clause}
                 """,
-                id=step_id,
-                step_type=step_type,
-                order=order,
+                **params,
             )
 
             tx.run(
