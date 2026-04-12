@@ -1,26 +1,22 @@
 # Environment and credentials
 .env
-*.env
-.env.*
 credentials.local
 credentials.*
 
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
 *.pyd
 .Python
-venv/
-env/
-.venv/
 *.egg-info/
 dist/
 build/
 *.egg
 
-# Virtual environment
+# Virtual environments
 venv/
+env/
+.venv/
 ENV/
 
 # IDE

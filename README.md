@@ -131,10 +131,9 @@ cp .env.example .env
 ```
 
 At minimum you need:
-- `NVIDIA_API_KEY` — from build.nvidia.com (free tier available)
+- `LLM_API_KEY` — from your LLM provider (NVIDIA NIM, OpenAI, Anthropic, or Gemini)
 - `NEO4J_PASSWORD` — generate with `openssl rand -hex 16`
 - `POSTGRES_PASSWORD` — generate with `openssl rand -hex 16`
-- `MCP_ACCESS_KEY` — the key your clients use to authenticate
 
 ### 3. Run database migrations
 
@@ -208,10 +207,13 @@ On the Postgres side, `Evidence` rows store each retrieval item with `generation
 | `NEO4J_USERNAME` | Neo4j user | `neo4j` |
 | `NEO4J_PASSWORD` | Neo4j password | — |
 | `TENANT_ID` | Single-tenant ID | `default` |
-| `NVIDIA_API_KEY` | NVIDIA NIM API key | — |
-| `EMBEDDING_MODEL` | NVIDIA embedding model | `nvidia/nv-embed-v1` |
+| `LLM_API_KEY` | LLM API key | — |
+| `LLM_PROVIDER` | LLM provider (nvidia, openai, anthropic, gemini) | `nvidia` |
+| `EMBEDDING_URL` | Embedding API endpoint | NVIDIA NIM default |
+| `EMBEDDING_MODEL` | Embedding model | `nvidia/nv-embed-v1` |
 | `EMBEDDING_DIM` | Embedding dimensions | `4096` |
-| `MCP_ACCESS_KEY` | Access key for tool auth | — |
+| `ENTITY_COMPLETION_URL` | Entity extraction completion URL | NVIDIA NIM default |
+| `ENTITY_MODEL` | Entity extraction model | `microsoft/phi-3-mini-128k-instruct` |
 | `SERVER_PORT` | FastAPI server port | `8000` |
 
 ---
