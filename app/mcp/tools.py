@@ -1,14 +1,11 @@
 """MCP tool implementations wrapping existing route logic."""
+
 from uuid import UUID, uuid4
 
-from app import embeddings
-from app.db import qdrant as qdrant_db
 from app.db.neo4j.client import NodeId, prefixed_id
 from app.db.neo4j import get_latest_fact, write_fact, Fact
-from app.database import get_session_maker
-from app.models import Memory
+from app.db.database import get_session_maker
 from app.schemas import (
-    GraphSearchRequest,
     GraphTraversalResult,
     MemoryOut,
     RecallRequest,
@@ -16,8 +13,6 @@ from app.schemas import (
     RunSkillRequest,
     SearchRequest,
 )
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _db():
@@ -114,7 +109,9 @@ async def graph_search(
     from app.routes.graph import _traverse_from_entity
 
     async with _db()() as db:
-        result: GraphTraversalResult = await _traverse_from_entity(db, entity_name, depth)
+        result: GraphTraversalResult = await _traverse_from_entity(
+            db, entity_name, depth
+        )
         return {
             "memories": [
                 {

@@ -1,4 +1,5 @@
 """MCP server for Logios Brain."""
+
 from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
@@ -85,7 +86,9 @@ async def assert_fact(
     replaces_id: str | None = None,
 ) -> dict:
     """Manually assert a Fact into the graph with optional REPLACES link."""
-    return await tools.assert_fact(content, valid_from, valid_until, version, replaces_id)
+    return await tools.assert_fact(
+        content, valid_from, valid_until, version, replaces_id
+    )
 
 
 @mcp.tool()
