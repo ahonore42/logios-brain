@@ -1,8 +1,9 @@
 """MCP server for Logios Brain."""
-from mcp.server.auth.settings import AuthSettings
-from mcp.server.fastmcp import FastMCP
+from contextlib import asynccontextmanager
 
-from app.mcp.auth import BearerTokenVerifier
+from mcp.server.fastmcp import FastMCP
+from starlette.applications import Starlette
+
 from app.mcp import tools
 
 mcp = FastMCP(
@@ -14,9 +15,24 @@ mcp = FastMCP(
         "assert_fact() and get_fact() to manage structured facts, "
         "and run_skill() to execute skills with evidence context."
     ),
-    token_verifier=BearerTokenVerifier(),
     json_response=True,
-    auth=AuthSettings(issuer_url="http://localhost", resource_server_url="http://localhost"),
+    transport_security=None,
+    stateless_http=True,
+    streamable_http_path="/mcp",
+)
+
+
+# Uvicorn-compatible ASGI app with session manager lifespan
+@asynccontextmanager
+async def _lifespan(app):
+    async with mcp.session_manager.run():
+        yield
+
+
+app = Starlette(
+    debug=False,
+    routes=mcp.streamable_http_app().routes,
+    lifespan=_lifespan,
 )
 
 
@@ -27,12 +43,7 @@ async def remember(
     session_id: str | None = None,
     metadata: dict | None = None,
 ) -> dict:
-    """
-    Store a memory in all three stores: Postgres, Qdrant, and Neo4j.
-
-    Embeds the content, writes the memory record, and triggers async entity
-    extraction into the knowledge graph.
-    """
+    """Store a memory in all three stores: Postgres, Qdrant, and Neo4j."""
     return await tools.remember(content, source, session_id, metadata)
 
 
@@ -42,11 +53,7 @@ async def search(
     top_k: int = 10,
     threshold: float = 0.65,
 ) -> list[dict]:
-    """
-    Semantic vector search over memories using cosine similarity.
-
-    Returns memories ranked by relevance, hydrated with full content.
-    """
+    """Semantic vector search over memories using cosine similarity."""
     return await tools.search(query, top_k, threshold)
 
 
@@ -56,13 +63,7 @@ async def recall(
     since: str | None = None,
     limit: int = 20,
 ) -> list[dict]:
-    """
-    Structured recall of memories by source and/or date range.
-
-    source: filter by origin (e.g. 'telegram', 'claude', 'manual')
-    since: ISO date string — only memories captured after this date
-    limit: maximum number of results (default 20)
-    """
+    """Structured recall of memories by source and/or date range."""
     return await tools.recall(source, since, limit)
 
 
@@ -71,13 +72,7 @@ async def graph_search(
     entity_name: str,
     depth: int = 2,
 ) -> dict:
-    """
-    Traverse the knowledge graph from a named entity to all reachable
-    MemoryChunks and Facts.
-
-    Facts are automatically resolved through their REPLACES chains
-    to return the newest valid version. depth controls traversal depth.
-    """
+    """Traverse the knowledge graph from a named entity to all reachable nodes."""
     return await tools.graph_search(entity_name, depth)
 
 
@@ -89,25 +84,13 @@ async def assert_fact(
     version: int = 1,
     replaces_id: str | None = None,
 ) -> dict:
-    """
-    Manually assert a Fact into the graph.
-
-    Optionally links to an existing Fact via REPLACES, enabling version chains
-    without going through the memory extraction pipeline.
-
-    replaces_id: optional ID of the Fact this newer Fact supersedes
-    """
+    """Manually assert a Fact into the graph with optional REPLACES link."""
     return await tools.assert_fact(content, valid_from, valid_until, version, replaces_id)
 
 
 @mcp.tool()
 async def get_fact(fact_id: str) -> dict | None:
-    """
-    Retrieve a Fact by ID, resolved through its REPLACES chain.
-
-    Returns the newest valid Fact that supersedes the given ID,
-    or None if the ID is not found.
-    """
+    """Retrieve a Fact by ID, resolved through its REPLACES chain."""
     return await tools.get_fact(fact_id)
 
 
@@ -118,12 +101,5 @@ async def run_skill(
     model: str = "unknown",
     machine: str = "unknown",
 ) -> dict:
-    """
-    Execute a skill with evidence context.
-
-    Loads the skill's prompt template, retrieves relevant memories from Qdrant,
-    builds an evidence manifest, and returns everything needed for local execution.
-
-    After executing, call record_generation with the output.
-    """
+    """Execute a skill with evidence context."""
     return await tools.run_skill(skill_name, context, model, machine)

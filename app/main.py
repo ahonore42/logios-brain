@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.auth import AuthMiddleware
 from app.database import close_db, get_engine
 from app.mcp.server import mcp
 from app.routes.health import router as health_router
@@ -16,18 +17,21 @@ from app.routes.graph import router as graph_router
 async def lifespan(app: FastAPI):
     engine = get_engine()
     async with engine.begin():
-        # Schema creation happens via Alembic migrations
         pass
-    yield
+    # Initialize MCP session manager so it starts before handling requests
+    _ = mcp.streamable_http_app()
+    async with mcp.session_manager.run():
+        yield
     await close_db()
 
 
-app = FastAPI(title="Logios Brain MCP Server", lifespan=lifespan)
+app = FastAPI(title="Logios Brain", lifespan=lifespan)
+
+app.add_middleware(AuthMiddleware)
 
 app.include_router(health_router)
 app.include_router(memory_router)
 app.include_router(skills_router)
 app.include_router(graph_router)
 
-# Mount MCP StreamableHTTP handler at /mcp
 app.mount("/mcp", mcp.streamable_http_app())

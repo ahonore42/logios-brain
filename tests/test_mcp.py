@@ -1,38 +1,7 @@
-"""Tests for MCP server, auth, and tool handlers."""
+"""Tests for MCP server and tool handlers."""
 import pytest
 
-from app.mcp.auth import BearerTokenVerifier
 from app.mcp.server import mcp
-
-
-class TestBearerTokenVerifier:
-    """Unit tests for BearerTokenVerifier."""
-
-    def setup_method(self):
-        self.verifier = BearerTokenVerifier()
-
-    @pytest.mark.asyncio
-    async def test_valid_token_returns_access_token(self):
-        """A token matching LOGIOS_BRAIN_KEY returns an AccessToken."""
-        from app import config
-
-        token = config.LOGIOS_BRAIN_KEY
-        result = await self.verifier.verify_token(token)
-        assert result is not None
-        assert result.client_id == "logios-brain"
-        assert "default" in result.scopes
-
-    @pytest.mark.asyncio
-    async def test_invalid_token_returns_none(self):
-        """A token that doesn't match returns None."""
-        result = await self.verifier.verify_token("not-the-right-key")
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_empty_token_returns_none(self):
-        """An empty string token returns None."""
-        result = await self.verifier.verify_token("")
-        assert result is None
 
 
 class TestMCPServerInstantiation:
@@ -51,7 +20,7 @@ class TestMCPServerInstantiation:
         app = mcp.streamable_http_app()
         assert app is not None
         assert hasattr(app, "routes")
-        # Should have /mcp route
+        # Should have /mcp route (streamable_http_path defaults to "/mcp")
         paths = [r.path for r in app.routes]
         assert "/mcp" in paths
 
