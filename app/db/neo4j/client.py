@@ -1,4 +1,5 @@
 """Neo4j driver management and index creation."""
+
 from enum import Enum
 
 from neo4j import GraphDatabase

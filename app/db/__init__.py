@@ -1,5 +1,5 @@
 """Database client modules."""
-from app.db import neo4j
-from app.db import qdrant
 
-__all__ = ["neo4j", "qdrant"]
+from app.db import database, neo4j, qdrant
+
+__all__ = ["database", "neo4j", "qdrant"]

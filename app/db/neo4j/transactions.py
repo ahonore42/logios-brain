@@ -1,4 +1,5 @@
 """Transaction functions for atomic graph writes."""
+
 from app.db.neo4j.client import get_driver
 from app.db.neo4j.nodes import MemoryChunk, Event, Fact
 
@@ -70,7 +71,8 @@ def write_memory_chunk(
                     tenant_id=chunk.tenant_id,
                     agent_id=None,
                     event_type=event_type or chunk.type,
-                    event_description=event_description or f"Memory captured: {chunk.type}",
+                    event_description=event_description
+                    or f"Memory captured: {chunk.type}",
                     timestamp_utc=chunk.timestamp_utc,
                 )
                 tx.run(
@@ -164,7 +166,7 @@ def write_fact(
                 version=fact.version,
             )
 
-            for source_id in (derived_from_ids or []):
+            for source_id in derived_from_ids or []:
                 tx.run(
                     """
                     MERGE (f:Fact {id: $fact_id})
@@ -207,8 +209,9 @@ def get_latest_fact(fact_id: str, timeout: float | None = None) -> dict | None:
         # The chain TIP is the reachable node with NO INCOMING REPLACES
         # (the newest fact that nothing supersedes).
         # ORDER BY valid_from DESC LIMIT 1 resolves parallel chains.
-        records = list(session.run(
-            """
+        records = list(
+            session.run(
+                """
             MATCH (start:Fact {id: $fact_id})
             MATCH (tip:Fact)-[:REPLACES*0..]->(start)
             WHERE NOT exists(()-[:REPLACES]->(tip))
@@ -219,6 +222,7 @@ def get_latest_fact(fact_id: str, timeout: float | None = None) -> dict | None:
             ORDER BY tip.valid_from DESC
             LIMIT 1
             """,
-            fact_id=fact_id,
-        ))
+                fact_id=fact_id,
+            )
+        )
         return dict(records[0]) if records else None
