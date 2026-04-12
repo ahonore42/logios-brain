@@ -4,13 +4,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.auth import AuthMiddleware
-from app.database import close_db, get_engine
+from app.db.database import close_db, get_engine
 from app.mcp.server import mcp
+from app.auth import AuthMiddleware
+from app.routes.auth import router as auth_router
+from app.routes.graph import router as graph_router
 from app.routes.health import router as health_router
 from app.routes.memory import router as memory_router
 from app.routes.skills import router as skills_router
-from app.routes.graph import router as graph_router
 
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ app = FastAPI(title="Logios Brain", lifespan=lifespan)
 
 app.add_middleware(AuthMiddleware)
 
+app.include_router(auth_router)
 app.include_router(health_router)
 app.include_router(memory_router)
 app.include_router(skills_router)

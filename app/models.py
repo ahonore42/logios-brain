@@ -141,7 +141,9 @@ class Skill(Base):
 
     __table_args__ = (
         Index(
-            "idx_skills_active_where_active", "active", postgresql_where=(text("active = true"))
+            "idx_skills_active_where_active",
+            "active",
+            postgresql_where=(text("active = true")),
         ),
     )
 
@@ -236,3 +238,43 @@ class EvidenceWithContent(Base):
     relevance_score: Mapped[Optional[float]] = mapped_column(Float)
 
 
+class Owner(Base):
+    """Single owner account. Created once via /auth/setup."""
+
+    __tablename__ = "owner"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String, nullable=False, default="")
+    is_setup: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AgentToken(Base):
+    """Named token for an agent. Raw token shown once at creation; only hash stored."""
+
+    __tablename__ = "agent_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token_hash: Mapped[str] = mapped_column(
+        String, nullable=False, unique=True, index=True
+    )
+    agent_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index("ix_agent_tokens_agent_id_active", "agent_id", "revoked_at"),
+    )

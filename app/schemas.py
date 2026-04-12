@@ -1,10 +1,10 @@
 """Pydantic request/response schemas for all MCP tool endpoints."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 # ── Request schemas ──────────────────────────────────────────────────────────
@@ -190,3 +190,148 @@ class EvidenceWithContentOut(BaseModel):
 class GenerationReceipt(BaseModel):
     generation: GenerationOut
     evidence: list[EvidenceWithContentOut]
+
+
+# ── Auth schemas ──────────────────────────────────────────────────────────────
+
+
+class Token(BaseModel):
+    """OAuth2-style token response."""
+
+    access_token: str
+    refresh_token: str | None = None
+    token_type: str = "bearer"
+    expires_in: int  # seconds
+
+
+class OwnerSetup(BaseModel):
+    """First-time owner setup."""
+
+    email: EmailStr
+    password: Annotated[str, Field(min_length=8)]
+
+
+class OwnerPublic(BaseModel):
+    """Public owner info (no sensitive fields)."""
+
+    id: int
+    email: str | None
+    is_setup: bool
+    created_at: datetime
+
+
+class TokenCreate(BaseModel):
+    """Request to create a new agent token."""
+
+    name: str = Field(..., min_length=1, max_length=200)
+    expires_in_days: int | None = None  # None = never expires
+
+
+class TokenResponse(BaseModel):
+    """Agent token info (no raw token)."""
+
+    id: int
+    agent_id: str
+    name: str
+    created_at: datetime
+    last_used_at: datetime | None
+    is_active: bool  # revoked_at is None
+
+    @classmethod
+    def from_row(cls, row) -> "TokenResponse":
+        return cls(
+            id=row.id,
+            agent_id=row.agent_id,
+            name=row.name,
+            created_at=row.created_at,
+            last_used_at=row.last_used_at,
+            is_active=row.revoked_at is None,
+        )
+
+
+class TokenCreateResponse(BaseModel):
+    """Response when creating a token — raw token shown ONLY here."""
+
+    id: int
+    agent_id: str
+    token: str  # raw token, shown only once
+    name: str
+    created_at: datetime
+
+
+class TokenList(BaseModel):
+    """List of token info objects."""
+
+    data: list[TokenResponse]
+    count: int
+
+
+class Message(BaseModel):
+    """Generic string message response."""
+
+    message: str
+
+
+# ── Form request models ───────────────────────────────────────────────────────
+
+
+class LoginForm(BaseModel):
+    """Owner login form."""
+
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+class VerifySetupForm(BaseModel):
+    """Complete owner setup with OTP."""
+
+    pending_token: str = Field(...)
+    otp: str = Field(..., min_length=6, max_length=6)
+
+
+class RefreshTokenForm(BaseModel):
+    """Exchange a refresh token for a new access token."""
+
+    refresh_token: str = Field(...)
+
+
+class AgentTokenExchangeForm(BaseModel):
+    """Exchange a raw agent token for a short-lived access token."""
+
+    authorization: str = Field(...)  # Bearer <raw_token>
+
+
+# ── Auth runtime types ─────────────────────────────────────────────────────────
+
+
+class PendingSetup:
+    """Temporary container for pending owner setup data (not a Pydantic schema)."""
+
+    def __init__(self, email: str, hashed_password: str, otp_hash: str) -> None:
+        self.email = email
+        self.hashed_password = hashed_password
+        self.otp_hash = otp_hash
+
+
+class AuthContext:
+    """Auth context attached to request.state after middleware validates the token."""
+
+    def __init__(
+        self,
+        token_hash: str | None = None,
+        agent_id: str | None = None,
+        owner_id: int | None = None,
+        token_scope: str | None = None,
+    ) -> None:
+        self.token_hash = token_hash
+        self.agent_id = agent_id
+        self.owner_id = owner_id
+        self.token_scope = token_scope
+
+    @property
+    def is_owner(self) -> bool:
+        return self.token_scope == "owner"
+
+    @property
+    def is_agent(self) -> bool:
+        return self.token_scope == "agent"
