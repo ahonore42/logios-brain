@@ -1,4 +1,5 @@
 """Tests for Neo4j graph storage — full schema."""
+
 import hashlib
 from uuid import uuid4
 
@@ -92,7 +93,13 @@ async def test_write_memory_chunk_with_session():
     )
     session_id = str(uuid4())
     event_id = prefixed_id(NodeId.EVENT, str(uuid4()))
-    write_memory_chunk(chunk=chunk, session_id=session_id, event_id=event_id, event_type="telegram", event_description="Memory captured: telegram")
+    write_memory_chunk(
+        chunk=chunk,
+        session_id=session_id,
+        event_id=event_id,
+        event_type="telegram",
+        event_description="Memory captured: telegram",
+    )
 
     from app.db.neo4j import get_driver
 
@@ -121,8 +128,15 @@ async def test_write_memory_chunk_is_idempotent():
         type="manual",
     )
     event_id = prefixed_id(NodeId.EVENT, str(uuid4()))
-    write_memory_chunk(chunk=chunk, event_id=event_id, event_type="manual", event_description="Memory captured: manual")
-    write_memory_chunk(chunk=chunk)  # second write — MemoryChunk is MERGE, stays idempotent
+    write_memory_chunk(
+        chunk=chunk,
+        event_id=event_id,
+        event_type="manual",
+        event_description="Memory captured: manual",
+    )
+    write_memory_chunk(
+        chunk=chunk
+    )  # second write — MemoryChunk is MERGE, stays idempotent
 
     from app.db.neo4j import get_driver
 
@@ -421,13 +435,42 @@ async def test_add_evidence_step():
     """EvidenceStep should be created and linked with NEXT chain."""
     evidence_path_id = prefixed_id(NodeId.EVIDENCE_PATH, str(uuid4()))
 
-    step1 = EvidenceStep(id=prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4())), step_type="read_memory", order=0)
-    step2 = EvidenceStep(id=prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4())), step_type="merge_context", order=1)
-    step3 = EvidenceStep(id=prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4())), step_type="generate_output", order=2)
+    step1 = EvidenceStep(
+        id=prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4())),
+        step_type="read_memory",
+        order=0,
+    )
+    step2 = EvidenceStep(
+        id=prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4())),
+        step_type="merge_context",
+        order=1,
+    )
+    step3 = EvidenceStep(
+        id=prefixed_id(NodeId.EVIDENCE_STEP, str(uuid4())),
+        step_type="generate_output",
+        order=2,
+    )
 
-    add_evidence_step(evidence_path_id=evidence_path_id, step_id=step1.id, step_type=step1.step_type, order=step1.order)
-    add_evidence_step(evidence_path_id=evidence_path_id, step_id=step2.id, step_type=step2.step_type, order=step2.order, prev_step_id=step1.id)
-    add_evidence_step(evidence_path_id=evidence_path_id, step_id=step3.id, step_type=step3.step_type, order=step3.order, prev_step_id=step2.id)
+    add_evidence_step(
+        evidence_path_id=evidence_path_id,
+        step_id=step1.id,
+        step_type=step1.step_type,
+        order=step1.order,
+    )
+    add_evidence_step(
+        evidence_path_id=evidence_path_id,
+        step_id=step2.id,
+        step_type=step2.step_type,
+        order=step2.order,
+        prev_step_id=step1.id,
+    )
+    add_evidence_step(
+        evidence_path_id=evidence_path_id,
+        step_id=step3.id,
+        step_type=step3.step_type,
+        order=step3.order,
+        prev_step_id=step2.id,
+    )
 
     from app.db.neo4j import get_driver
 

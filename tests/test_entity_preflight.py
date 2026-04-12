@@ -8,7 +8,7 @@ spaCy NER. spaCy tests are skipped gracefully if the model is absent.
 
 import pytest
 
-from app.entity_preflight import KNOWN_TOOLS, merge_entities, preflight_extract
+from app.genai.entity_preflight import KNOWN_TOOLS, merge_entities, preflight_extract
 
 # ---------------------------------------------------------------------------
 # Tool dictionary tests
@@ -117,7 +117,7 @@ class TestSpacyExtraction:
 
     def test_spacy_failure_is_non_fatal(self, monkeypatch):
         """If spaCy raises, preflight still returns tool results."""
-        import app.entity_preflight as module
+        import app.genai.entity_preflight as module
 
         monkeypatch.setattr(module, "_nlp", "broken_nlp")  # will raise on call
         result = preflight_extract("Sarah uses Redis.")

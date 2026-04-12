@@ -1,5 +1,4 @@
 """Tests for MCP server and tool handlers."""
-import pytest
 
 from app.mcp.server import mcp
 
@@ -29,7 +28,15 @@ class TestMCPServerInstantiation:
         # Access the tool manager via the MCP server
         tool_manager = mcp._tool_manager
         tool_names = [t.name for t in tool_manager.list_tools()]
-        expected = ["remember", "search", "recall", "graph_search", "assert_fact", "get_fact", "run_skill"]
+        expected = [
+            "remember",
+            "search",
+            "recall",
+            "graph_search",
+            "assert_fact",
+            "get_fact",
+            "run_skill",
+        ]
         for name in expected:
             assert name in tool_names, f"Tool {name} not found in {tool_names}"
 
@@ -44,6 +51,7 @@ class TestToolOutputStructure:
         # We can't call the actual function without DB, but we can verify
         # the function signature is correct by checking it exists and is async
         import inspect
+
         assert inspect.iscoroutinefunction(remember)
         sig = inspect.signature(remember)
         params = list(sig.parameters.keys())
@@ -55,6 +63,7 @@ class TestToolOutputStructure:
         from app.mcp.tools import search
 
         import inspect
+
         assert inspect.iscoroutinefunction(search)
         sig = inspect.signature(search)
         params = list(sig.parameters.keys())
@@ -67,6 +76,7 @@ class TestToolOutputStructure:
         from app.mcp.tools import assert_fact
 
         import inspect
+
         assert inspect.iscoroutinefunction(assert_fact)
         sig = inspect.signature(assert_fact)
         params = list(sig.parameters.keys())
@@ -79,6 +89,7 @@ class TestToolOutputStructure:
         from app.mcp.tools import run_skill
 
         import inspect
+
         assert inspect.iscoroutinefunction(run_skill)
         sig = inspect.signature(run_skill)
         params = list(sig.parameters.keys())

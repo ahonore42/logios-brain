@@ -1,8 +1,8 @@
 """Test NVIDIA NIM embeddings API."""
-import pytest
-import pytest_asyncio
 
-from app.embeddings import embed, embed_query
+import pytest
+
+from app.genai.embeddings import embed, embed_query
 
 
 @pytest.mark.asyncio

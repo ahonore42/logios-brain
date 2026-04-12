@@ -1,4 +1,5 @@
 """Tests for memory routes including Postgres + Qdrant write path."""
+
 import pytest
 import pytest_asyncio
 from uuid import uuid4
@@ -6,7 +7,7 @@ from uuid import uuid4
 from app.routes.memory import _upsert_memory
 from app.db import qdrant as qdrant_db
 from app.schemas import RememberRequest
-from app.database import get_db
+from app.db.database import get_db
 
 
 @pytest.fixture(scope="module", autouse=True)

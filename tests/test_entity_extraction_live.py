@@ -1,7 +1,8 @@
 """Live integration tests for entity extraction — real API, real content."""
+
 import json
 
-from app.entity_extraction import extract_entities, VALID_REL_TYPES, VALID_LABELS
+from app.genai.entity_extraction import extract_entities, VALID_REL_TYPES, VALID_LABELS
 
 
 class TestExtractEntitiesLive:
@@ -27,11 +28,15 @@ class TestExtractEntitiesLive:
 
     def test_all_relationship_types_are_valid(self):
         """Every relationship type must be in VALID_REL_TYPES."""
-        result = extract_entities("The report was created by Alice and relates to Project Phoenix.")
+        result = extract_entities(
+            "The report was created by Alice and relates to Project Phoenix."
+        )
 
         for entity in result:
             for rel in entity["relationships"]:
-                assert rel["type"] in VALID_REL_TYPES, f"Invalid rel type: {rel['type']}"
+                assert rel["type"] in VALID_REL_TYPES, (
+                    f"Invalid rel type: {rel['type']}"
+                )
 
     def test_known_entities_are_extracted(self):
         """Known entities in the input must appear in the output with correct labels."""
@@ -56,7 +61,9 @@ class TestExtractEntitiesLive:
             for rel in entity.get("relationships", []):
                 target = rel.get("target", "").strip()
                 if target:
-                    assert target in all_names, f"Target '{target}' is not a named entity"
+                    assert target in all_names, (
+                        f"Target '{target}' is not a named entity"
+                    )
 
     def test_no_hallucinated_entities(self):
         """Entity names must not contain obviously hallucinated content."""

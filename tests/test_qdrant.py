@@ -1,6 +1,6 @@
 """Tests for Qdrant vector store."""
+
 import pytest
-import pytest_asyncio
 
 from app.db import qdrant as qdrant_db
 
