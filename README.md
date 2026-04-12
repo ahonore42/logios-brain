@@ -1,115 +1,38 @@
 # Logios Brain
 
-Personal AI memory infrastructure. One shared knowledge layer that every AI you run can read from and write to through the Model Context Protocol (MCP).
+<center>
 
-Built on four stores: PostgreSQL for the ledger, Qdrant for semantic retrieval, Neo4j for the knowledge graph, and Redis for Celery task brokering.
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python: 3.11+](https://img.shields.io/badge/Python-3.11+-green.svg)](pyproject.toml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![mypy](https://img.shields.io/badge/mypy-checked-blue.svg)](http://mypy-lang.org/)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ed.svg?logo=docker)](docker-compose.yml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
 
----
+</center>
 
-## What It Does
+Personal AI memory infrastructure. One shared knowledge layer that every AI you run can read from and write to.
 
-Logios Brain captures every memory you store and makes it searchable by semantic similarity, source, or graph relationships. It tracks every AI generation with a full evidence receipt — which memories were retrieved, which graph nodes were traversed, which model ran, on which machine.
-
-When you run a skill (e.g. weekly review, competitive analysis), Logios builds an evidence manifest before the AI produces output. The receipt is stored alongside the output so you can trace it later.
-
-The server is the front door. When an AI wants to remember something or look something up, it knocks on this door.
-
-Behind that door are four helpers, each with one job:
-
-- **PostgreSQL** is the filing cabinet. Every single thing that ever gets remembered goes in here first. It never forgets and never loses anything.
-- **Qdrant** is the "find me something similar" helper. It turns memories into numbers so it can ask "what else did we capture that feels like this?" — even if the exact words are different. It needs the NVIDIA API to do the number-crunching.
-- **Neo4j** is the map maker. It doesn't just store memories — it draws lines between them. "This project connects to this concept, which came up in that session." It's what lets you ask why things are related, not just what exists.
-- **Redis** is the task queue. It brokers background work — writing to Qdrant, Neo4j, and entity extraction happen asynchronously so the API response returns immediately.
-
-The evidence layer is the most important piece. Every time an AI produces something — an analysis, a plan, a summary — it doesn't just hand you the answer. It staples a receipt to it: here are the memories I read, here's which connection in Neo4j I followed, here's which model produced this, at this time, on this machine. Six months later you can look back at any output and know exactly what the system was thinking.
+Built on four stores: **PostgreSQL** for the ledger, **Qdrant** for semantic retrieval, **Neo4j** for the knowledge graph, and **Redis** for Celery task brokering.
 
 ---
 
-## Architecture
+## Key Features
 
-```
-Client (Claude Code, agent, Telegram bot)
-           │
-           │  HTTP + X-Brain-Key auth
-           ▼
-     FastAPI (app/)
-     ┌────────────────────────────────┐
-     │  /memories/remember            │
-     │  /memories/search              │
-     │  /graph/recall                 │
-     │  /graph/search                 │
-     │  /skills/run                   │
-     │  /skills/record                │
-     │  /skills/evidence              │
-     └──────┬──────────┬─────────┬────┘
-            │          │         │
-            ▼          ▼         ▼
-       PostgreSQL    Qdrant   Neo4j
-      (pgvector)   (vectors) (graph)
-        Ledger    Retriever  Reasoner
-            │
-            ▼
-      NVIDIA NIM API
-     (embeddings + entity extraction)
-            │
-            ▼
-         Redis
-     (Celery broker)
-```
-
-### The Four Stores
-
-| Store | Role | What lives here |
-|---|---|---|
-| **PostgreSQL** | Ledger | Every raw memory, chunk, entity, generation record, evidence receipt. SQLAlchemy async with Alembic migrations. |
-| **Qdrant** | Retriever | Chunk embeddings (4096-dim, `nvidia/nv-embed-v1`) for semantic search. Time-aware validity filtering via payload indexes. |
-| **Neo4j** | Reasoner | Entity graph — MemoryChunks, Events, Facts (with REPLACES versioning), EvidencePath, EvidenceStep chains, Outputs, Agents. |
-| **Redis** | Task broker | Celery broker for async background tasks: Qdrant writes, Neo4j writes, entity extraction. |
-
-The `memory_id` / `qdrant_id` is the spine that connects all three stores.
-
----
-
-## API Endpoints
-
-All endpoints except `/health` require `X-Brain-Key: YOUR_KEY` header or `?key=YOUR_KEY` query param.
-
-### Memories
-
-**`POST /memories/remember`** — Store a memory
-- Writes to Postgres (dedup via SHA256 fingerprint), dispatches a Celery chain: Qdrant write → Neo4j MemoryChunk+Event write → entity extraction
-- Returns the memory immediately; background tasks run async
-
-**`POST /memories/search`** — Semantic search
-- Embeds query via NVIDIA NIM, searches Qdrant (with optional time-bounded validity filter), hydrates from Postgres
-
-### Graph
-
-**`POST /graph/recall`** — Structured recall by source/date range
-- Direct Postgres SQL query, timezone-aware
-
-**`POST /graph/search`** — Traverse from a named entity
-- Neo4j Cypher traversal up to N hops to reachable MemoryChunks and Facts
-- Facts resolved through REPLACES chains to return newest valid version
-- MemoryChunks hydrated from Postgres
-
-### Skills
-
-**`POST /skills/run`** — Load a skill template with evidence
-- Looks up active skill, retrieves top-8 relevant memories as evidence manifest
-- Returns prompt template + evidence so an external AI can generate output
-
-**`POST /skills/record`** — Record an AI generation
-- Writes Generation to Postgres, builds full Neo4j evidence path (EvidencePath + USED/FOLLOWED/PRODUCED links)
-
-**`POST /skills/evidence`** — Retrieve evidence for a generation
-- Returns generation + enriched evidence records with full memory content
+| | |
+|---|---|
+| **Three-tier memory** | Working (Redis) → Episodic (Postgres+Qdrant) → Semantic (Neo4j) |
+| **Evidence receipts** | Every AI generation stores full provenance — which memories were read, which graph edges were traversed, which model ran |
+| **Server-controlled snapshots** | Agents cannot skip or prevent checkpoints; the server fires them on configurable thresholds |
+| **Identity memories** | Human-authored persistent instructions, owner-only writes, read-only for agents |
+| **Skills with evidence** | Structured skill execution builds an evidence manifest before output; the receipt is stored alongside the result |
+| **Multi-agent ready** | One shared memory layer across all agents; session-scoped episodic context |
 
 ---
 
 ## Quick Start
 
-### 1. Clone and start containers
+### 1. Clone and start infrastructure
 
 ```bash
 git clone https://github.com/YOUR_HANDLE/logios-brain.git
@@ -167,15 +90,63 @@ curl http://localhost:8000/health
 
 ---
 
-## Entity Extraction
+## Architecture
 
-Entity extraction runs as the third link in the Celery chain (after Qdrant and Neo4j writes are confirmed). It calls `microsoft/phi-3-mini-128k-instruct` via NVIDIA NIM to extract named entities from memory content, then writes labeled nodes to Neo4j.
+```
+Client (Claude Code, agent, Telegram bot)
+           │
+           │  HTTP + X-Brain-Key auth
+           ▼
+     FastAPI (app/)
+     ┌────────────────────────────────┐
+     │  /memories/remember            │
+     │  /memories/search              │
+     │  /memories/context             │
+     │  /memories/identity            │
+     │  /memories/forget              │
+     │  /memories/digest              │
+     │  /graph/recall                 │
+     │  /graph/search                 │
+     │  /skills/run                   │
+     │  /skills/record                │
+     │  /skills/evidence              │
+     └──────┬──────────┬─────────┬────┘
+            │          │         │
+            ▼          ▼         ▼
+       PostgreSQL    Qdrant   Neo4j
+      (pgvector)   (vectors) (graph)
+        Ledger    Retriever  Reasoner
+            │
+            ▼
+      NVIDIA NIM API
+     (embeddings + entity extraction)
+            │
+            ▼
+         Redis
+     (Celery broker)
+```
 
-**Valid entity labels**: `Project`, `Person`, `Concept`, `Decision`, `Tool`, `Event`, `Location`, `Document`
+### The Four Stores
 
-**Valid relationship types**: `RELATES_TO`, `PART_OF`, `CREATED_BY`, `MENTIONS`, `CAUSED_BY`
+| Store | Role | What lives here |
+|---|---|---|
+| **PostgreSQL** | Ledger | Every raw memory, chunk, entity, generation record, evidence receipt. SQLAlchemy async with Alembic migrations. |
+| **Qdrant** | Retriever | Chunk embeddings (4096-dim, `nvidia/nv-embed-v1`) for semantic search. Time-aware validity filtering via payload indexes. |
+| **Neo4j** | Reasoner | Entity graph — MemoryChunks, Events, Facts (with REPLACES versioning), EvidencePath, EvidenceStep chains, Outputs, Agents. |
+| **Redis** | Task broker | Celery broker for async background tasks: Qdrant writes, Neo4j writes, entity extraction. |
 
-Extraction is conservative — only significant anchors worth traversing from, not every noun mentioned. Extracted entities are validated against allowlists before writing to Neo4j. The system prompt instructs the model to extract only entities that appear verbatim in the source text.
+The `memory_id` / `qdrant_id` is the spine that connects all three stores.
+
+---
+
+## Memory Types
+
+| Type | Description | Who writes |
+|---|---|---|
+| `standard` | General-purpose memories | Agents via `/memories/remember` |
+| `identity` | Human-authored persistent instructions | Owners only via `/memories/identity` |
+| `checkpoint` | Server-controlled session snapshots | Server auto-fires on threshold |
+| `manual` | Explicit agent memories | Agents via `/memories/remember` |
 
 ---
 
@@ -188,6 +159,74 @@ Every AI generation gets a full provenance trace in Neo4j:
 - **Facts** support `REPLACES` versioning chains — `get_latest_fact()` resolves to the newest valid version, not superseded ones
 
 On the Postgres side, `Evidence` rows store each retrieval item with `generation_id`, `memory_id`, `chunk_id`, `neo4j_node_id`, `relevance_score`, `retrieval_type`, and `rank`. The `evidence_with_content` join view materializes full memory content for evidence receipts.
+
+---
+
+## Agent Framework Integrations
+
+Logios ships client libraries for every major agent framework. Import the integration for your framework:
+
+```python
+# Hermes Agent
+from app.integrations.hermes import connect
+memory_manager = connect("http://localhost:8000", api_key, session_id, agent_id)
+agent = HermesAgent(external_memory_manager=memory_manager)
+
+# OpenClaw Gateway extension
+from app.integrations.openclaw import connect
+gateway.register_extension("logios", connect("http://localhost:8000", api_key))
+
+# Pi Coding Agent
+from app.integrations.pi import connect
+pi_agent.register_extension("logios", connect("http://localhost:8000", api_key, session_id))
+
+# GoClaw pipeline stage
+from app.integrations.goclaw import connect
+for stage in connect("http://localhost:8000", api_key, session_id, agent_id):
+    pipeline.add_stage(stage)
+
+# Claude Agent SDK
+from app.integrations.claude_agent_sdk import LogiosStorageAdapter
+adapter = LogiosStorageAdapter("http://localhost:8000", api_key, session_id, agent_id)
+
+# ZeroClaw MCP server
+from app.integrations.zeroclaw import LogiosMCPServer
+server.add_tool_provider(LogiosMCPServer("http://localhost:8000", api_key))
+```
+
+See [`docs/integrations.md`](docs/integrations.md) for the full guide.
+
+---
+
+## API Endpoints
+
+All endpoints except `/health` require `X-Brain-Key: YOUR_KEY` header or `?key=YOUR_KEY` query param.
+
+### Memories
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/memories/remember` | POST | Store a memory (async Qdrant + Neo4j writes) |
+| `/memories/search` | POST | Semantic search via Qdrant |
+| `/memories/context` | POST | Identity + episodic memories for agent turn |
+| `/memories/identity` | POST, GET, PATCH, DELETE | Owner-only identity memory management |
+| `/memories/forget` | POST | Revoke memories by ID or semantic query |
+| `/memories/digest` | GET | Memory digest: unused, low-relevance, recent checkpoints |
+
+### Graph
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/graph/recall` | POST | Structured recall by source/date range |
+| `/graph/search` | POST | Neo4j traversal from a named entity |
+
+### Skills
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/skills/run` | POST | Load a skill template with evidence manifest |
+| `/skills/record` | POST | Record an AI generation with full evidence path |
+| `/skills/evidence` | POST | Retrieve evidence receipt for a generation |
 
 ---
 
@@ -232,34 +271,39 @@ logios-brain/
 │   ├── main.py                # FastAPI entrypoint, route mounting
 │   ├── celery.py              # Celery app with Redis broker
 │   ├── config.py              # Environment variable resolver
-│   ├── dependencies.py         # verify_key() auth dependency
+│   ├── dependencies.py        # verify_key() auth dependency
 │   ├── embeddings.py          # NVIDIA NIM embeddings (nvidia/nv-embed-v1)
 │   ├── entity_extraction.py   # NVIDIA NIM entity extraction (phi-3-mini)
 │   ├── tasks.py               # Celery tasks: upsert_qdrant, upsert_neo4j, extract_entities
-│   ├── database.py            # SQLAlchemy async engine + session
 │   ├── models.py              # SQLAlchemy models
 │   ├── schemas.py             # Pydantic request/response schemas
 │   ├── routes/
 │   │   ├── health.py          # GET /health
-│   │   ├── memory.py          # POST /memories/remember, /memories/search
-│   │   ├── graph.py           # POST /graph/recall, /graph/search
-│   │   └── skills.py          # POST /skills/run, /skills/record, /skills/evidence
+│   │   ├── memory.py         # /memories/* endpoints
+│   │   ├── graph.py          # /graph/* endpoints
+│   │   └── skills.py         # /skills/* endpoints
+│   ├── hooks/                 # Client-side hook library (WorkingMemory, SnapshotTrigger)
+│   ├── integrations/          # Agent framework integrations (Hermes, OpenClaw, Pi, GoClaw, etc.)
 │   └── db/
-│       ├── qdrant.py          # Qdrant client + payload indexes
+│       ├── qdrant.py         # Qdrant client + payload indexes
 │       └── neo4j/
-│           ├── __init__.py     # Public API exports
-│           ├── client.py       # Neo4j driver singleton + indexes
-│           ├── nodes.py        # Typed node dataclasses
-│           ├── relationships.py # RelationshipType enum
-│           ├── transactions.py # write_memory_chunk, write_event, get_latest_fact
-│           └── evidence.py     # create_evidence_path, add_evidence_step, link_evidence_to_output
+│           ├── __init__.py   # Public API exports
+│           ├── client.py     # Neo4j driver singleton + indexes
+│           ├── nodes.py      # Typed node dataclasses
+│           ├── relationships.py
+│           ├── transactions.py
+│           └── evidence.py   # EvidencePath, EvidenceStep, Evidence relations
+├── docs/
+│   ├── architecture/         # System and agent memory architecture docs
+│   ├── setup/                 # Setup guides (Docker, Hetzner, backup)
+│   └── integrations.md        # Agent framework integration guide
 ├── scripts/
-│   ├── seed_skills.py         # Seeds skill templates to Postgres
+│   ├── seed_skills.py        # Seeds skill templates to Postgres
 │   └── test_connection.py     # Connectivity verification
 └── tests/
-    ├── conftest.py             # Pytest fixtures, CELERY_TASK_ALWAYS_EAGER=true
-    ├── test_entity_extraction.py       # 8 mocked I/O tests
-    └── test_entity_extraction_live.py  # 8 live integration tests
+    ├── conftest.py
+    ├── test_entity_extraction.py
+    └── test_entity_extraction_live.py
 ```
 
 ---
@@ -286,3 +330,9 @@ HETZNER_IP=your.vps.ip HETZNER_USER=your_user ./scripts/deploy.sh
 ```
 
 Prerequisites on Hetzner: Docker, Docker Compose, Python 3.11, SSH access.
+
+---
+
+## Contributing
+
+Contributions are welcome. Please ensure `ruff check` and `mypy` pass before submitting a PR.
