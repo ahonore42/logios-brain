@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import fnmatch
-from typing import cast
 import json
-from typing import Any, Optional
+import textwrap
+from typing import Any, Literal, Optional, cast
 
+import httpx
 import redis
 
 
@@ -138,3 +139,126 @@ class WorkingMemory:
         """Return the number of entries currently buffered (before forget filters)."""
         pattern = self._scan_pattern()
         return len(cast("list[str]", self._redis.keys(pattern)))
+
+    def _annotation_key(self) -> str:
+        return f"{self.KEY_PREFIX}:{self._session_id}:annotation"
+
+    def annotate(self, annotation: str) -> None:
+        """
+        Store an agent-provided annotation to be included in the next snapshot.
+
+        The annotation is stored in Redis under a session-scoped key. It is
+        picked up by the next snapshot() call and included in the checkpoint
+        metadata as agent_annotation, then cleared.
+        """
+        key = self._annotation_key()
+        self._redis.set(key, annotation)
+
+    def _get_and_clear_annotation(self) -> Optional[str]:
+        """Retrieve and clear the stored annotation. Returns None if none set."""
+        key = self._annotation_key()
+        annotation = cast("str | None", self._redis.get(key))
+        if annotation:
+            self._redis.delete(key)
+        return annotation if annotation else None
+
+    def _synthesize_content(self, entries: list[dict]) -> str:
+        """
+        Synthesize buffered entries into a checkpoint content string.
+
+        Groups entries by tool name and summarizes the work done.
+        """
+        if not entries:
+            return "Empty checkpoint."
+
+        tool_groups: dict[str, list[str]] = {}
+        for entry in entries:
+            tool = entry.get("tool_name", "unknown")
+            summary = entry.get("result_summary", "")
+            if tool not in tool_groups:
+                tool_groups[tool] = []
+            tool_groups[tool].append(summary)
+
+        lines = ["Checkpoint:"]
+        for tool, summaries in tool_groups.items():
+            lines.append(f"  {tool}: {len(summaries)} call(s)")
+            for s in summaries[:3]:
+                wrapped = textwrap.shorten(s, width=72, placeholder="...")
+                lines.append(f"    - {wrapped}")
+            if len(summaries) > 3:
+                lines.append(f"    ... and {len(summaries) - 3} more")
+
+        return "\n".join(lines)
+
+    def snapshot(
+        self,
+        api_base_url: str,
+        api_key: str,
+        trigger_mode: Literal["token", "call_count", "time_based"] = "call_count",
+        turn_count: Optional[int] = None,
+    ) -> dict:
+        """
+        Flush the buffer, synthesize into a checkpoint memory, and POST to Logios.
+
+        Returns the JSON response from POST /memories/remember.
+
+        The synthesized content summarizes all buffered tool results grouped by
+        tool name. The checkpoint metadata includes the full tool_calls list
+        (with Redis refs for reconstruction), turn_count, trigger_mode, and
+        the agent_annotation if one was provided via annotate().
+
+        Usage::
+
+            if trigger.should_fire(turn_index=14):
+                result = working.snapshot(
+                    api_base_url="http://localhost:8000",
+                    api_key="your-brain-key",
+                    trigger_mode="call_count",
+                    turn_index=14,
+                )
+                trigger.mark_fired(14)
+        """
+        entries = self.flush()
+        annotation = self._get_and_clear_annotation()
+        turn_count = turn_count if turn_count is not None else self._turn_index
+
+        content = self._synthesize_content(entries)
+
+        tool_calls = [
+            {
+                "tool": e.get("tool_name", ""),
+                "result_ref": e.get("raw_result_ref", ""),
+            }
+            for e in entries
+        ]
+
+        metadata = {
+            "type": "checkpoint",
+            "session_id": self._session_id,
+            "agent_id": self._agent_id,
+            "tool_calls": tool_calls,
+            "turn_count": turn_count,
+            "snapshot_trigger": trigger_mode,
+            "agent_annotation": annotation,
+        }
+
+        payload = {
+            "content": content,
+            "source": "agent",
+            "type": "checkpoint",
+            "metadata": metadata,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                f"{api_base_url.rstrip('/')}/memories/remember",
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            return response.json()
