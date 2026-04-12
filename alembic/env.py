@@ -1,11 +1,14 @@
+"""Alembic migration environment."""
+
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from alembic import context
+from app.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -18,8 +21,6 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from app.models import Base  # noqa: F401
-
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
@@ -65,6 +66,7 @@ async def run_async_migrations() -> None:
 
     """
     import os
+
     url = os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
     if url and url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+psycopg://", 1)
