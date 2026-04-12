@@ -13,9 +13,17 @@ from app.genai import embeddings
 from app.db.database import get_db
 from app.db import qdrant as qdrant_db
 from app.db.neo4j.client import NodeId, prefixed_id
-from app.dependencies import verify_key
+from app.dependencies import require_owner, verify_key
 from app.models import Chunk, Memory
-from app.schemas import MemoryOut, RememberRequest, SearchRequest
+from app.schemas import (
+    ContextRequest,
+    ContextResponse,
+    IdentityRequest,
+    IdentityResponse,
+    MemoryOut,
+    RememberRequest,
+    SearchRequest,
+)
 from app.automation.tasks import (
     task_extract_entities,
     task_upsert_neo4j,
@@ -51,13 +59,14 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
     # 1. Postgres upsert
     result = await db.execute(
         text(
-            "SELECT upsert_memory(:content, :source, cast(:metadata as jsonb), :session_id)"
+            "SELECT upsert_memory(:content, :source, cast(:metadata as jsonb), :session_id, :type)"
         ),
         {
             "content": data.content,
             "source": data.source,
             "metadata": _json.dumps(data.metadata),
             "session_id": data.session_id,
+            "type": data.type or "standard",
         },
     )
     memory_id = result.scalar()
@@ -126,6 +135,7 @@ async def _upsert_memory(db: AsyncSession, data: RememberRequest) -> MemoryOut:
         id=memory.id,
         content=memory.content,
         source=memory.source,
+        type=memory.type,
         session_id=memory.session_id,
         captured_at=memory.captured_at,
         updated_at=memory.updated_at,
@@ -209,3 +219,86 @@ async def search_route(
     _=Depends(verify_key),
 ):
     return await _search_memories(db, data)
+
+
+@router.post("/context", response_model=ContextResponse, status_code=200)
+async def context_route(
+    data: ContextRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_key),
+) -> ContextResponse:
+    """
+    Return memory context for an agent turn.
+
+    Always includes type='identity' memories (human-authored core instructions).
+    Episodic memories (checkpoints from prior sessions) are retrieved via
+    Qdrant vector search filtered by session_id.
+    """
+    # 1. Identity memories — always loaded, always first
+    identity_stmt = select(Memory).where(Memory.type == "identity")
+    identity_result = await db.execute(identity_stmt)
+    identity_memories = [MemoryOut.model_validate(r) for r in identity_result.scalars().all()]
+
+    # 2. Episodic memories — Qdrant search filtered by session
+    episodic_memories: List[MemoryOut] = []
+    vector = await embeddings.embed_query(data.query)
+
+    session_filter = None
+    if data.session_id:
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+        session_filter = Filter(
+            must=[
+                FieldCondition(key="session_id", match=MatchValue(value=str(data.session_id))),
+                FieldCondition(key="revoked", match=MatchValue(value=False)),
+            ]
+        )
+
+    response = qdrant_db.get_qdrant().query_points(
+        collection_name=qdrant_db.COLLECTION_NAME,
+        query=vector,
+        limit=data.top_k,
+        score_threshold=0.65,
+        with_payload=True,
+        query_filter=session_filter,
+    )
+
+    results = response.points
+    if results:
+        memory_ids = [uuid.UUID(r.payload["memory_id"]) for r in results if r.payload]
+        episodic_stmt = select(Memory).where(Memory.id.in_(memory_ids))
+        episodic_result = await db.execute(episodic_stmt)
+        rows = episodic_result.scalars().all()
+        memories_by_id = {row.id: row for row in rows}
+        ordered = [memories_by_id[mid] for mid in memory_ids if mid in memories_by_id]
+        episodic_memories = [MemoryOut.model_validate(r) for r in ordered]
+
+    return ContextResponse(
+        identity_memories=identity_memories,
+        episodic_memories=episodic_memories,
+    )
+
+
+@router.post("/identity", response_model=IdentityResponse, status_code=201)
+async def create_identity_route(
+    data: IdentityRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_owner),
+) -> IdentityResponse:
+    """
+    Create a type='identity' memory. Owner-only.
+
+    Identity memories are the persistent instruction layer — human-authored,
+    always injected at session start, never modified by agents.
+    """
+    identity_request = RememberRequest(
+        content=data.content,
+        source="system",
+        type="identity",
+        metadata=data.metadata,
+    )
+    memory = await _upsert_memory(db, identity_request)
+    return IdentityResponse(
+        memory=memory,
+        message="Identity memory created. It will be loaded at the start of every session.",
+    )

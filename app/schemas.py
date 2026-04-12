@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 class RememberRequest(BaseModel):
     content: str
     source: str = "manual"
+    type: Optional[str] = "standard"
     session_id: Optional[UUID] = None
     metadata: dict = {}
 
@@ -22,6 +23,36 @@ class SearchRequest(BaseModel):
     top_k: int = 10
     threshold: float = 0.65
     as_of: Optional[datetime] = None  # time-bounded retrieval filter
+
+
+class ContextRequest(BaseModel):
+    """Request context for an agent turn: identity + episodic memories."""
+
+    query: str
+    session_id: Optional[UUID] = None
+    top_k: int = 8
+    include_identity: bool = True
+
+
+class ContextResponse(BaseModel):
+    """Response for /memories/context — identity memories always, episodic on query."""
+
+    identity_memories: list["MemoryOut"]
+    episodic_memories: list["MemoryOut"]
+
+
+class IdentityRequest(BaseModel):
+    """Create a type='identity' memory. Owner-only."""
+
+    content: str
+    metadata: dict = {}
+
+
+class IdentityResponse(BaseModel):
+    """Response after creating an identity memory."""
+
+    memory: "MemoryOut"
+    message: str
 
 
 class RecallRequest(BaseModel):
@@ -80,6 +111,7 @@ class MemoryOut(BaseModel):
     id: UUID
     content: str
     source: str
+    type: str
     session_id: Optional[UUID] = None
     captured_at: datetime
     updated_at: datetime
