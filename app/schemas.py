@@ -48,6 +48,20 @@ class IdentityRequest(BaseModel):
     metadata: dict = {}
 
 
+class IdentityUpdateRequest(BaseModel):
+    """Update an existing identity memory. Owner-only."""
+
+    content: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class ForgetRequest(BaseModel):
+    """Revoke memories so they no longer appear in retrieval."""
+
+    memory_ids: Optional[list[UUID]] = None
+    query: Optional[str] = None  # forget memories matching this semantic query
+
+
 class IdentityResponse(BaseModel):
     """Response after creating an identity memory."""
 
@@ -88,6 +102,7 @@ class RecordGenerationRequest(BaseModel):
     prompt_used: str
     evidence_manifest: list[dict]
     session_id: Optional[UUID] = None
+    chain_of_thought: Optional[str] = None  # stored on the generate_output EvidenceStep
 
 
 class GetEvidenceRequest(BaseModel):
