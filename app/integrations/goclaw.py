@@ -46,7 +46,10 @@ class LogiosMemoryStage:
         self.top_k = top_k
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
     def execute(self, turn_context: dict[str, Any]) -> dict[str, Any]:
         """
@@ -114,7 +117,10 @@ class LogiosSummarizeStage:
         self.agent_id = agent_id
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
     def execute(self, turn_context: dict[str, Any]) -> dict[str, Any]:
         """

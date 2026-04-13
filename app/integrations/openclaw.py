@@ -54,7 +54,10 @@ class LogiosGatewayExtension:
         self._client = httpx.Client(timeout=30.0)
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
     def _session_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {}

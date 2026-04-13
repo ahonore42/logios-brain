@@ -46,7 +46,10 @@ class LogiosExtension:
         self.session_id = session_id
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
     # ── Pi extension hooks ──────────────────────────────────────────────────────
 
@@ -82,15 +85,19 @@ class LogiosExtension:
 
         injected = []
         for mem in data.get("identity_memories", []):
-            injected.append({
-                "role": "system",
-                "content": f"[identity] {mem['content']}",
-            })
+            injected.append(
+                {
+                    "role": "system",
+                    "content": f"[identity] {mem['content']}",
+                }
+            )
         for mem in data.get("episodic_memories", []):
-            injected.append({
-                "role": "system",
-                "content": f"[memory] {mem['content']}",
-            })
+            injected.append(
+                {
+                    "role": "system",
+                    "content": f"[memory] {mem['content']}",
+                }
+            )
         return injected
 
     def on_compact(self, compaction_context: dict[str, Any]) -> Optional[str]:

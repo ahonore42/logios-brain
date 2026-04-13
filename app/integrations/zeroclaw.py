@@ -54,7 +54,10 @@ class LogiosMCPServer:
         self.session_id = session_id
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
     def _session_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {}
@@ -73,8 +76,15 @@ class LogiosMCPServer:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "Semantic search query"},
-                        "top_k": {"type": "integer", "description": "Max results (default 8)", "default": 8},
+                        "query": {
+                            "type": "string",
+                            "description": "Semantic search query",
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "description": "Max results (default 8)",
+                            "default": 8,
+                        },
                     },
                     "required": ["query"],
                 },
@@ -85,14 +95,20 @@ class LogiosMCPServer:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "content": {"type": "string", "description": "Memory content to store"},
+                        "content": {
+                            "type": "string",
+                            "description": "Memory content to store",
+                        },
                         "memory_type": {
                             "type": "string",
                             "enum": ["standard", "identity", "checkpoint", "manual"],
                             "description": "Type of memory (default standard)",
                             "default": "standard",
                         },
-                        "metadata": {"type": "object", "description": "Optional metadata dict"},
+                        "metadata": {
+                            "type": "object",
+                            "description": "Optional metadata dict",
+                        },
                     },
                     "required": ["content"],
                 },
@@ -103,7 +119,10 @@ class LogiosMCPServer:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "Query describing memories to revoke"},
+                        "query": {
+                            "type": "string",
+                            "description": "Query describing memories to revoke",
+                        },
                     },
                     "required": ["query"],
                 },
@@ -235,8 +254,7 @@ class LogiosMCPServer:
 
         return {
             "content": [
-                {"id": str(m["id"]), "content": m["content"]}
-                for m in memories
+                {"id": str(m["id"]), "content": m["content"]} for m in memories
             ],
             "count": len(memories),
         }
@@ -259,7 +277,9 @@ class LogiosMCPServer:
 def main() -> None:
     """CLI entry point for running the Logios MCP server standalone."""
     parser = argparse.ArgumentParser(description="Logios Brain MCP Server for ZeroClaw")
-    parser.add_argument("--url", default="http://localhost:8000", help="Logios Brain base URL")
+    parser.add_argument(
+        "--url", default="http://localhost:8000", help="Logios Brain base URL"
+    )
     parser.add_argument("--key", default="", help="API key for Logios Brain")
     parser.add_argument("--session-id", default=None, help="Default session ID")
     args = parser.parse_args()
@@ -276,6 +296,7 @@ def main() -> None:
 
     # Keep the process alive
     import time
+
     while True:
         time.sleep(86400)
 

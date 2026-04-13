@@ -35,7 +35,7 @@ KNOWN_TOOLS: dict[str, list[str]] = {
     "Docker": ["docker", "docker compose", "docker-compose"],
     "Supabase": ["supabase"],
     "NVIDIA NIM": ["nvidia nim", "nim api", "nvidia api"],
-    "spaCy": ["spacy", "spaCy"],
+    "spaCy": ["spacy", "spacy"],
     "React Native": ["react native"],
     "Slack": ["slack"],
     "GitHub": ["github"],

@@ -240,7 +240,9 @@ async def context_route(
     # 1. Identity memories — always loaded, always first
     identity_stmt = select(Memory).where(Memory.type == "identity")
     identity_result = await db.execute(identity_stmt)
-    identity_memories = [MemoryOut.model_validate(r) for r in identity_result.scalars().all()]
+    identity_memories = [
+        MemoryOut.model_validate(r) for r in identity_result.scalars().all()
+    ]
 
     # 2. Episodic memories — Qdrant search filtered by session
     episodic_memories: List[MemoryOut] = []
@@ -252,7 +254,9 @@ async def context_route(
 
         session_filter = Filter(
             must=[
-                FieldCondition(key="session_id", match=MatchValue(value=str(data.session_id))),
+                FieldCondition(
+                    key="session_id", match=MatchValue(value=str(data.session_id))
+                ),
                 FieldCondition(key="revoked", match=MatchValue(value=False)),
             ]
         )

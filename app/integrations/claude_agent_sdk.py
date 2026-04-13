@@ -82,7 +82,10 @@ class LogiosStorageAdapter:
         )
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
     # ── SessionStore ────────────────────────────────────────────────────────────
 
@@ -99,7 +102,9 @@ class LogiosStorageAdapter:
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
             if isinstance(content, list):
-                content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
+                content = " ".join(
+                    c.get("text", "") for c in content if isinstance(c, dict)
+                )
             summary_parts.append(f"{role}: {content[:200]}")
 
         content = "[session history]\n" + "\n".join(summary_parts)
@@ -148,7 +153,9 @@ class LogiosStorageAdapter:
 
         messages = []
         for mem in data.get("identity_memories", []):
-            messages.append({"role": "system", "content": f"[identity] {mem['content']}"})
+            messages.append(
+                {"role": "system", "content": f"[identity] {mem['content']}"}
+            )
         for mem in data.get("episodic_memories", []):
             messages.append({"role": "system", "content": f"[memory] {mem['content']}"})
 

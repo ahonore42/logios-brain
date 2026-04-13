@@ -34,7 +34,7 @@ jobs:
 
       - name: Set required env vars for tests
         run: |
-          echo "DATABASE_URL=postgresql+asyncpg://logios:test-password@localhost:5432/logios_test" >> $GITHUB_ENV
+          echo "DATABASE_URL=postgresql://logios:test-password@localhost:5432/logios_test" >> $GITHUB_ENV
           echo "SECRET_KEY=ci-test-secret-key-for-testing-only" >> $GITHUB_ENV
           echo "ACCESS_SECRET_KEY=ci-test-secret-key-for-testing-only" >> $GITHUB_ENV
           echo "EMAILS_ENABLED=false" >> $GITHUB_ENV

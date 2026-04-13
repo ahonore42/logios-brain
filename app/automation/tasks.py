@@ -245,7 +245,9 @@ def _memory_digest_sync(
                 "id": str(row.id),
                 "content": row.content[:200],
                 "captured_at": row.captured_at.isoformat() if row.captured_at else None,
-                "turn_count": row.metadata_.get("turn_count") if row.metadata_ else None,
+                "turn_count": row.metadata_.get("turn_count")
+                if row.metadata_
+                else None,
             }
             for row in recent_checkpoints
         ],

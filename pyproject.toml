@@ -22,6 +22,8 @@ dependencies = [
     "PyJWT>=2.8.0",
     "emails>=0.6.0",
     "jinja2>=3.0.0",
+    # spaCy NER model — must be a direct URL since it's not on PyPI
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
 
 [tool.pytest.ini_options]

@@ -52,7 +52,9 @@ class SnapshotTrigger:
     last_snapshot_turn: int = 0
     """Turn index when the last snapshot fired."""
 
-    last_snapshot_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_snapshot_time: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
     """UTC timestamp of the last snapshot."""
 
     def should_fire(self, turn_index: int, token_percent: float | None = None) -> bool:

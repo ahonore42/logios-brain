@@ -109,7 +109,9 @@ class WorkingMemory:
 
     def _apply_forget_filters(self, entries: list[dict]) -> list[dict]:
         """Filter out entries matching any forget pattern."""
-        return [e for e in entries if not self._matches_any_pattern(e.get("tool_name", ""))]
+        return [
+            e for e in entries if not self._matches_any_pattern(e.get("tool_name", ""))
+        ]
 
     def flush(self) -> list[dict]:
         """

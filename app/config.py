@@ -30,13 +30,19 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
 
 # ── Embeddings (NVIDIA NIM) ───────────────────────────────────────────────────
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "nvidia")  # nvidia | openai | anthropic | gemini
-EMBEDDING_URL = os.getenv("EMBEDDING_URL", "https://integrate.api.nvidia.com/v1/embeddings")
+LLM_PROVIDER = os.getenv(
+    "LLM_PROVIDER", "nvidia"
+)  # nvidia | openai | anthropic | gemini
+EMBEDDING_URL = os.getenv(
+    "EMBEDDING_URL", "https://integrate.api.nvidia.com/v1/embeddings"
+)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nvidia/nv-embed-v1")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "4096"))
 
 # ── Entity extraction (LLM completion) ───────────────────────────────────────
-ENTITY_COMPLETION_URL = os.getenv("ENTITY_COMPLETION_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
+ENTITY_COMPLETION_URL = os.getenv(
+    "ENTITY_COMPLETION_URL", "https://integrate.api.nvidia.com/v1/chat/completions"
+)
 ENTITY_MODEL = os.getenv("ENTITY_MODEL", "microsoft/phi-3-mini-128k-instruct")
 
 # ── Email (OTP delivery) ───────────────────────────────────────────────────────

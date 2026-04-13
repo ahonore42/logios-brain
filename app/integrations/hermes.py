@@ -60,11 +60,16 @@ class LogiosMemoryManager:
         self._turn_index = 0
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
     # ── MemoryManager interface ────────────────────────────────────────────────
 
-    def on_turn_start(self, runtime_context: Optional[dict[str, Any]] = None) -> list[dict]:
+    def on_turn_start(
+        self, runtime_context: Optional[dict[str, Any]] = None
+    ) -> list[dict]:
         """
         Called at the start of each agent turn.
 
