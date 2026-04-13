@@ -1,5 +1,7 @@
 """Tests for memory routes including Postgres + Qdrant write path."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 import pytest_asyncio
 from uuid import uuid4
@@ -8,6 +10,10 @@ from app.routes.memory import _upsert_memory
 from app.db import qdrant as qdrant_db
 from app.schemas import RememberRequest
 from app.db.database import get_db
+
+
+# Mock embedding vector — 4096 dimensions, same as NVIDIA NIM output
+MOCK_VECTOR = [0.0] * 4096
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -21,6 +27,16 @@ def setup_qdrant_collection():
     qdrant_db.ensure_collection()
     yield
     # No cleanup needed
+
+
+@pytest.fixture(scope="module", autouse=True)
+def mock_embeddings():
+    """Skip real LLM API calls in CI — no LLM_API_KEY present."""
+    with patch("app.routes.memory.embeddings.embed", new_callable=AsyncMock) as mock_embed, \
+         patch("app.routes.memory.embeddings.embed_query", new_callable=AsyncMock) as mock_query:
+        mock_embed.return_value = MOCK_VECTOR
+        mock_query.return_value = MOCK_VECTOR
+        yield
 
 
 @pytest_asyncio.fixture
