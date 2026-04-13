@@ -311,3 +311,54 @@ Agent loads identity memories on session start — improved behavior
 - **No agent self-modification** — the agent cannot write `type='identity'` memories; only the owner can create or update them
 - **No automatic behavioral adaptation** — improvements require human review
 - **No trust placed in the agent's memory quality** — the server owns what gets written
+
+---
+
+## Observability
+
+Logios ships with a full OpenTelemetry and Prometheus-based observability stack.
+
+### Tracing
+
+Distributed traces are exported via OTLP HTTP. When `OTEL_ENABLED=true`, the app auto-instruments FastAPI request handlers, Celery tasks, and HTTP clients. Each span carries:
+
+| Attribute | Description |
+|-----------|-------------|
+| `logios.operation` | Route operation name (`remember`, `search`, `record`, etc.) |
+| `logios.agent_id` | Agent that owns the request |
+| `logios.session_id` | Session in which the operation occurred |
+| `logios.memory_type` | Memory type written (`standard`, `checkpoint`, `identity`) |
+| `logios.evidence.count` | Number of evidence records in a generation |
+| `logios.store` | Which store was operated on (`postgres`, `qdrant`, `neo4j`) |
+
+Trace IDs are injected into JSON log output via the `JsonFormatter`, enabling correlated search across logs and traces.
+
+### Metrics
+
+The `/metrics` endpoint exposes Prometheus metrics scraped by Grafana Alloy:
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `logios_memory_count` | Gauge | `agent_id`, `memory_type` | Memories stored per agent and type |
+| `logios_generation_total` | Counter | `agent_id`, `skill_name` | Skill generations recorded |
+| `logios_retrieval_latency_seconds` | Histogram | `operation` | Vector retrieval latency |
+| `logios_http_request_latency_seconds` | Histogram | `method`, `endpoint`, `status_code` | HTTP request latency |
+| `logios_celery_task_latency_seconds` | Histogram | `task_name` | Celery task execution latency |
+| `logios_checkpoint_fired_total` | Counter | `trigger_mode`, `agent_id` | Checkpoints triggered |
+| `logios_errors_total` | Counter | `operation`, `error_type` | Errors by operation |
+
+### Dashboards and Alerting
+
+A pre-built Grafana dashboard (`conf/grafana/provisioning/dashboards/logios-overview.json`) ships with 14 panels across six sections: Memory, Generations & Evidence, Latency, Checkpoints, Errors. Prometheus alerting rules are in `conf/prometheus/alerts.logios.yml`, covering memory growth, generation error rates, latency regressions, and Celery task delays.
+
+### Environment Variables
+
+```bash
+OTEL_ENABLED=true                              # Enable OTel tracing and metrics
+OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318 # OTLP HTTP endpoint (Alloy sidecar)
+OTEL_TRACES_SAMPLER=parentbased_traceidratio   # Sampler: parentbased_traceidratio / always_on / always_off
+OTEL_TRACES_SAMPLER_ARG=0.1                    # Sample rate (0.0–1.0)
+TEMPO_ENDPOINT=http://alloy:4317                # Trace forwarding to Grafana Tempo
+PROMETHEUS_REMOTE_WRITE_URL=https://...        # Metrics forwarding to hosted Prometheus
+JSON_LOGGING=true                              # Structured JSON log output
+```

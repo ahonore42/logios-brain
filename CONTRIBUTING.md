@@ -44,6 +44,26 @@ uv run pytest tests/ --cov=app --cov-report=term-missing
 # Specific test file
 uv run pytest tests/test_auth_router.py -v
 
+### Code Quality
+uv run pytest tests/test_embeddings.py tests/test_entity_extraction_live.py -v
+```
+
+### Observability Testing
+
+```bash
+# Verify /metrics endpoint returns Prometheus metrics
+curl http://localhost:8000/metrics | grep logios_
+
+# Verify /health/ready includes all store checks
+curl http://localhost:8000/health/ready | jq .
+
+# Verify OTLP exporter is reachable (when OTEL_ENABLED=true)
+curl -sf http://localhost:4318/health | jq .
+```
+
+### Live Integration Tests
+
+```bash
 # Live integration tests (require LLM_API_KEY)
 uv run pytest tests/test_embeddings.py tests/test_entity_extraction_live.py -v
 ```
