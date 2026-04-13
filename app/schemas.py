@@ -1,7 +1,7 @@
 """Pydantic request/response schemas for all MCP tool endpoints."""
 
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -382,3 +382,87 @@ class AuthContext:
     @property
     def is_agent(self) -> bool:
         return self.token_scope == "agent"
+
+
+# ── Hooks (server-side working memory) ─────────────────────────────────────────
+
+
+class TriggerConfig(BaseModel):
+    """Register a snapshot trigger for a session."""
+
+    session_id: str
+    mode: Literal["token", "call_count", "time_based"] = "call_count"
+    threshold: int = 20
+    agent_id: str = "default"
+
+
+class TriggerResponse(BaseModel):
+    """Confirmation that a trigger was registered."""
+
+    session_id: str
+    mode: str
+    threshold: int
+    message: str
+
+
+class BufferRequest(BaseModel):
+    """Buffer a single tool call result for future snapshot."""
+
+    session_id: str
+    agent_id: str = "default"
+    tool_name: str
+    result_summary: str
+    result_embedding: list[float] = []
+    turn_index: int = 0
+
+
+class BufferResponse(BaseModel):
+    """Confirmation of buffered entry."""
+
+    entry_key: str
+    buffered_count: int
+
+
+class CheckRequest(BaseModel):
+    """Check whether the trigger has fired and get snapshot if so."""
+
+    session_id: str
+    agent_id: str = "default"
+    current_turn: int
+    token_percent: float | None = None
+
+
+class CheckResponse(BaseModel):
+    """Result of trigger evaluation."""
+
+    should_fire: bool
+    memory_id: str | None = None
+    snapshot_content: str | None = None
+    entries: list[dict] = []
+    entry_count: int = 0
+    turns_since_last: int = 0
+
+
+class FlushResponse(BaseModel):
+    """Result of explicitly flushing the buffer without snapshotting."""
+
+    entries: list[dict]
+    flushed_count: int
+
+
+class SnapshotRequest(BaseModel):
+    """Force a snapshot regardless of trigger state."""
+
+    session_id: str
+    agent_id: str = "default"
+    turn_count: int | None = None
+    annotation: str | None = None
+
+
+class SnapshotResponse(BaseModel):
+    """Result of a forced or triggered snapshot."""
+
+    memory_id: str
+    checkpoint_content: str
+    entry_count: int
+    message: str
