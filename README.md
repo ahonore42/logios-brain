@@ -336,17 +336,17 @@ Every push to `main` and every PR runs:
 
 ---
 
-## Deploy to Hetzner
+## Deploy to a VPS
 
 ```bash
-# On the VPS, clone once:
+# On the server, clone once:
 git clone https://github.com/YOUR_HANDLE/logios-brain.git ~/logios-brain
 
 # Run the deploy script from your local machine:
-HETZNER_IP=your.vps.ip HETZNER_USER=your_user ./scripts/deploy.sh
+SERVER_IP=your.vps.ip SSH_USER=your_user ./scripts/deploy.sh
 ```
 
-Prerequisites on Hetzner: Docker, Docker Compose, Python 3.11, SSH access.
+Prerequisites on the server: Docker, Docker Compose, SSH access.
 
 ---
 
