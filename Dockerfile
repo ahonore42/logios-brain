@@ -17,4 +17,5 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser /app
 USER appuser
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run migrations on start so the app always boots with a current schema
+CMD ["sh", "-c", "uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"]
