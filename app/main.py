@@ -1,10 +1,14 @@
 """FastAPI entrypoint. Routes are organized in app/routes/."""
 
+from __future__ import annotations
+
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from app.db.database import close_db, get_engine
+from app.logging_config import RequestLogMiddleware, configure_logging
 from app.mcp.server import mcp
 from app.auth import AuthMiddleware
 from app.routes.auth import router as auth_router
@@ -13,6 +17,10 @@ from app.routes.health import router as health_router
 from app.routes.hooks import router as hooks_router
 from app.routes.memory import router as memory_router
 from app.routes.skills import router as skills_router
+
+# Configure logging before the app starts.
+# Set JSON_LOGGING=true for production (structured JSON, includes request_id).
+configure_logging(json_format=os.getenv("JSON_LOGGING", "false").lower() == "true")
 
 
 @asynccontextmanager
@@ -30,6 +38,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Logios Brain", lifespan=lifespan)
 
 app.add_middleware(AuthMiddleware)
+app.add_middleware(RequestLogMiddleware, logger=__import__("logging").getLogger("app"))
 
 app.include_router(auth_router)
 app.include_router(health_router)
