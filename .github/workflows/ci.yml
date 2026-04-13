@@ -32,7 +32,7 @@ jobs:
           - 7474:7474
           - 7687:7687
         options: >-
-          --health-cmd curl -sf http://localhost:7474 || exit 1
+          --health-cmd bash -c "curl --silent --fail http://localhost:7474"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
@@ -42,7 +42,7 @@ jobs:
           - 6333:6333
           - 6334:6334
         options: >-
-          --health-cmd curl -sf http://localhost:6333/healthz || exit 1
+          --health-cmd bash -c "curl --silent --fail http://localhost:6333/healthz"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
