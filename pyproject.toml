@@ -24,6 +24,15 @@ dependencies = [
     "jinja2>=3.0.0",
     # spaCy NER model — must be a direct URL since it's not on PyPI
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    # OpenTelemetry — tracing and metrics
+    "opentelemetry-api>=1.25.0",
+    "opentelemetry-sdk>=1.25.0",
+    "opentelemetry-exporter-otlp>=1.25.0",
+    "opentelemetry-instrumentation-fastapi>=0.46b0",
+    "opentelemetry-instrumentation-httpx>=0.47b0",
+    "opentelemetry-instrumentation-celery>=0.46b0",
+    "opentelemetry-sdk-extension-aws>=1.25.0",
+    "prometheus-client>=0.21.0",
 ]
 
 [tool.pytest.ini_options]
