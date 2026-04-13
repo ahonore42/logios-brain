@@ -27,6 +27,8 @@ from app.schemas import (
     RememberRequest,
     SearchRequest,
 )
+from app import telemetry
+from opentelemetry import trace
 from app.automation.tasks import (
     task_extract_entities,
     task_upsert_neo4j,
@@ -210,8 +212,13 @@ async def _search_memories(db: AsyncSession, data: SearchRequest) -> List[Memory
 async def remember_route(
     data: RememberRequest,
     db: AsyncSession = Depends(get_db),
-    _=Depends(verify_key),
+    auth=Depends(verify_key),
 ):
+    span_ = trace.get_current_span()
+    if span_ and span_.is_recording():
+        span_.set_attribute(telemetry.OPERATION, "remember")
+        span_.set_attribute(telemetry.MEMORY_TYPE, data.type or "standard")
+        telemetry.set_span_attrs_from_auth(auth)
     return await _upsert_memory(db, data)
 
 

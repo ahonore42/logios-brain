@@ -23,6 +23,7 @@ from prometheus_client import Counter, Gauge, Histogram, Info
 
 if TYPE_CHECKING:
     from opentelemetry.metrics import Meter
+    from app.schemas import AuthContext
 
 # ── Standard span attribute keys ───────────────────────────────────────────────
 
@@ -252,6 +253,18 @@ def span(
             for k, v in attributes.items():
                 s.set_attribute(k, v)
         yield s
+
+
+def set_span_attrs_from_auth(auth_context: "AuthContext | None") -> None:
+    """Add standard logios span attributes from an AuthContext, if present."""
+    if auth_context is None:
+        return
+    span_ = trace.get_current_span()
+    if span_ and span_.is_recording():
+        if auth_context.agent_id:
+            span_.set_attribute(AGENT_ID, auth_context.agent_id)
+        if auth_context.owner_id:
+            span_.set_attribute("logios.owner_id", str(auth_context.owner_id))
 
 
 # ── Meter helpers ──────────────────────────────────────────────────────────────

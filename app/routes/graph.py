@@ -4,6 +4,7 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends
+from opentelemetry import trace
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from app.db.neo4j import get_driver, get_latest_fact, write_fact
 from app.db.neo4j.client import NodeId, prefixed_id
 from app.dependencies import verify_key, AuthContext
 from app.models import Memory
+from app import telemetry
 
 # from app.models import Entity  # TODO: re-enable when entity-only search is needed
 from app.schemas import (
@@ -179,8 +181,12 @@ async def _traverse_from_entity(
 async def recall_route(
     data: RecallRequest,
     db: AsyncSession = Depends(get_db),
-    _=Depends(verify_key),
+    auth=Depends(verify_key),
 ):
+    span_ = trace.get_current_span()
+    if span_ and span_.is_recording():
+        span_.set_attribute(telemetry.OPERATION, "recall")
+        telemetry.set_span_attrs_from_auth(auth)
     return await _recall_memories(db, data)
 
 
@@ -188,7 +194,7 @@ async def recall_route(
 async def graph_search_route(
     data: GraphSearchRequest,
     db: AsyncSession = Depends(get_db),
-    _=Depends(verify_key),
+    auth=Depends(verify_key),
 ):
     """
     Traverse the Neo4j graph from a named entity to all reachable nodes.
@@ -200,6 +206,11 @@ async def graph_search_route(
     Returns both resolved memories (hydrated from Postgres) and facts
     (resolved from Neo4j) in a single response.
     """
+    span_ = trace.get_current_span()
+    if span_ and span_.is_recording():
+        span_.set_attribute(telemetry.OPERATION, "graph_search")
+        span_.set_attribute("logios.entity_name", data.entity_name)
+        telemetry.set_span_attrs_from_auth(auth)
     return await _traverse_from_entity(db, data.entity_name, data.depth)
 
 

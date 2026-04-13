@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
+from opentelemetry import trace
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,7 @@ from app.schemas import (
     RunSkillRequest,
     SearchRequest,
 )
+from app import telemetry
 
 router = APIRouter(prefix="/skills", tags=["mcp-skills"])
 
@@ -196,10 +198,16 @@ async def _get_generation_receipt(
 async def run_skill_route(
     data: RunSkillRequest,
     db: AsyncSession = Depends(get_db),
-    _=Depends(verify_key),
+    auth=Depends(verify_key),
 ):
     """Prepare a skill execution — returns prompt template and evidence manifest."""
     from app.routes.memory import _search_memories
+
+    span_ = trace.get_current_span()
+    if span_ and span_.is_recording():
+        span_.set_attribute(telemetry.OPERATION, "run")
+        span_.set_attribute("logios.skill_name", data.skill_name)
+        telemetry.set_span_attrs_from_auth(auth)
 
     stmt = select(Skill).where(Skill.name == data.skill_name, Skill.active)
     result = await db.execute(stmt)
@@ -237,8 +245,14 @@ async def run_skill_route(
 async def record_generation_route(
     data: RecordGenerationRequest,
     db: AsyncSession = Depends(get_db),
-    _=Depends(verify_key),
+    auth=Depends(verify_key),
 ):
+    span_ = trace.get_current_span()
+    if span_ and span_.is_recording():
+        span_.set_attribute(telemetry.OPERATION, "record")
+        span_.set_attribute("logios.skill_name", data.skill_name)
+        span_.set_attribute(telemetry.EVIDENCE_COUNT, len(data.evidence_manifest))
+        telemetry.set_span_attrs_from_auth(auth)
     return await _record_generation(db, data)
 
 
