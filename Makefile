@@ -1,9 +1,9 @@
-.PHONY: dev logs stop test provision clean
+.PHONY: dev start logs stop test provision clean
 
 # Default target
 all: dev
 
-# Start all services in detached mode
+# Start all services in detached mode (local dev)
 dev:
 	docker compose up -d
 	@echo "Logios Brain is starting..."
@@ -23,6 +23,24 @@ dev:
 		fi; \
 		sleep 2; \
 	done
+
+# Start services and rebuild images (production/VPS)
+start:
+	docker compose up -d --build
+	@echo "Waiting for app to be healthy..."
+	@for i in $$(seq 1 30); do \
+		if curl -sf http://localhost:8000/health > /dev/null 2>&1; then \
+			echo "App is healthy."; \
+			exit 0; \
+		fi; \
+		if [ $$i -eq 30 ]; then \
+			echo "ERROR: App did not become healthy in time."; \
+			docker compose logs --tail=50 app; \
+			exit 1; \
+		fi; \
+		sleep 2; \
+	done
+	@echo "App is healthy."
 
 # Tail logs from all services
 logs:

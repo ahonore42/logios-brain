@@ -32,54 +32,22 @@ Built on four stores: **PostgreSQL** for the ledger, **Qdrant** for semantic ret
 
 ## Quick Start
 
-### 1. Clone and start everything
+One command from clone to running:
 
 ```bash
 git clone https://github.com/YOUR_HANDLE/logios-brain.git
 cd logios-brain
-cp .env.example .env
-# Edit .env with your credentials
+./scripts/init.sh --email you@example.com --password your-password
+```
+
+The script copies `.env.example`, generates secrets, starts all services with Docker, waits for the app to be healthy, and provisions an agent token — saving `AGENT_TOKEN`, `AGENT_ID`, and `LOGIOS_URL` to `.env`.
+
+On subsequent runs, just:
+
+```bash
 docker compose up -d
+# or: make dev
 ```
-
-Docker starts all five services (postgres, qdrant, neo4j, redis, app) and runs migrations automatically.
-
-Wait for all containers to be healthy:
-
-```bash
-docker compose ps
-```
-
-### 2. Create an agent token
-
-The server needs a Bearer token for all API calls. Provision an owner account, then create an agent token:
-
-```bash
-# Get the OTP (emails disabled in default config)
-curl -X POST http://localhost:8000/auth/setup \
-  -H "X-Secret-Key: YOUR_SECRET_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"email": "you@example.com", "password": "password"}'
-
-# Complete setup with the OTP from the response
-curl -X POST http://localhost:8000/auth/verify-setup \
-  -H "X-Secret-Key: YOUR_SECRET_KEY" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "pending_token=YOUR_TOKEN&otp=YOUR_OTP"
-
-# Log in to get an access token
-curl -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email": "you@example.com", "password": "password"}'
-
-# Create an agent token (save the token field — shown only once)
-curl -X POST http://localhost:8000/auth/tokens \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-agent"}'
-```
-
-Use the agent `token` as the Bearer token in all subsequent API calls.
 
 Health check:
 
@@ -88,7 +56,7 @@ curl http://localhost:8000/health
 # {"status":"ok"}
 ```
 
-For the full connection guide including framework integrations, see [`docs/connecting-agents.md`](docs/connecting-agents.md).
+For the full agent connection guide including framework integrations, see [`docs/connecting-agents.md`](docs/connecting-agents.md).
 
 ---
 
@@ -313,13 +281,17 @@ logios-brain/
 │           ├── relationships.py
 │           ├── transactions.py
 │           └── evidence.py   # EvidencePath, EvidenceStep, Evidence relations
+├── Makefile                  # Local dev: dev, logs, stop, clean, test, provision
 ├── docs/
 │   ├── architecture/          # System and agent memory architecture docs
 │   ├── integrations.md         # Agent framework integration guide
 │   └── connecting-agents.md   # Agent connection and provisioning guide
 ├── scripts/
+│   ├── init.sh                # First-time setup (generates secrets, provisions agent)
+│   ├── provision.py           # One-command agent token provisioning
 │   ├── seed_skills.py         # Seeds skill templates to Postgres
-│   └── test_connection.py      # Connectivity verification
+│   ├── test_connection.py     # Connectivity verification
+│   └── deploy.sh              # Remote VPS deploy (pull + rebuild)
 └── tests/                     # pytest test suite
 ```
 
@@ -338,12 +310,26 @@ Every push to `main` and every PR runs:
 
 ## Deploy to a VPS
 
-```bash
-# On the server, clone once:
-git clone https://github.com/YOUR_HANDLE/logios-brain.git ~/logios-brain
+**First time on a server:**
 
-# Run the deploy script from your local machine:
+```bash
+git clone https://github.com/YOUR_HANDLE/logios-brain.git ~/logios-brain
+cd ~/logios-brain
+./scripts/init.sh --email you@example.com --password your-password
+```
+
+**Subsequent updates** (from your local machine):
+
+```bash
 SERVER_IP=your.vps.ip SSH_USER=your_user ./scripts/deploy.sh
+```
+
+**Or on the server directly:**
+
+```bash
+make start   # rebuilds + starts all services
+make logs    # tail logs
+make stop    # stop services
 ```
 
 Prerequisites on the server: Docker, Docker Compose, SSH access.
