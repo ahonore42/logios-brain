@@ -54,6 +54,18 @@ class JsonFormatter(logging.Formatter):
             if ctx_val:
                 msg["request_id"] = ctx_val
 
+        # Add trace_id from the current OTel span, if one exists
+        try:
+            from opentelemetry import trace
+
+            span = trace.get_current_span()
+            if span and span.is_recording():
+                trace_id = format(span.get_span_context().trace_id, "032x")
+                if trace_id != "0" * 32:
+                    msg["trace_id"] = trace_id
+        except Exception:
+            pass  # Tracing not enabled — ignore
+
         # Include exception info if present
         if record.exc_info:
             msg["exception"] = self.formatException(record.exc_info)
