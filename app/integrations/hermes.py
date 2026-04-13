@@ -86,6 +86,7 @@ class LogiosMemoryProvider:
         self.api_key = api_key
         self.session_id = session_id
         self.agent_id = agent_id
+        self.redis_url = redis_url
         self.snapshot_threshold = snapshot_threshold
 
         self._working: "WorkingMemory | None" = None
@@ -120,7 +121,7 @@ class LogiosMemoryProvider:
         self.session_id = session_id
 
         self._working = WorkingMemory(
-            redis_url=f"redis://{self._redis_host()}:6379/0",
+            redis_url=self.redis_url,
             session_id=session_id,
             agent_id=self.agent_id,
         )
@@ -133,16 +134,6 @@ class LogiosMemoryProvider:
         self._cached_prefetch = None
         self._initialized = True
         logger.info("LogiosMemoryProvider initialized for session %s", session_id)
-
-    def _redis_host(self) -> str:
-        """Extract hostname from redis URL for Docker networking."""
-        from urllib.parse import urlparse
-
-        parsed = urlparse(self.api_base_url)
-        # In Docker, app can't reach host localhost — use service name
-        if parsed.hostname in ("localhost", "127.0.0.1"):
-            return "host.docker.internal"
-        return "localhost"
 
     def shutdown(self) -> None:
         """Flush working memory on shutdown."""
