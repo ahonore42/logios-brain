@@ -23,6 +23,29 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      neo4j:
+        image: neo4j:5-community
+        env:
+          NEO4J_AUTH: neo4j/test-password
+          NEO4J_dbms_security_procedures_unrestricted: apoc.*
+        ports:
+          - 7474:7474
+          - 7687:7687
+        options: >-
+          --health-cmd cypher-shell -u neo4j -p test-password 'RETURN 1'
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+          - 6334:6334
+        options: >-
+          --health-cmd curl -sf http://localhost:6333/healthz || exit 1
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -38,12 +61,34 @@ jobs:
           echo "SECRET_KEY=ci-test-secret-key-for-testing-only" >> $GITHUB_ENV
           echo "ACCESS_SECRET_KEY=ci-test-secret-key-for-testing-only" >> $GITHUB_ENV
           echo "EMAILS_ENABLED=false" >> $GITHUB_ENV
+          echo "NEO4J_URI=bolt://localhost:7687" >> $GITHUB_ENV
+          echo "NEO4J_USERNAME=neo4j" >> $GITHUB_ENV
+          echo "NEO4J_PASSWORD=test-password" >> $GITHUB_ENV
+          echo "QDRANT_URL=http://localhost:6333" >> $GITHUB_ENV
 
       - name: Wait for PostgreSQL to be ready
         run: |
           for i in $(seq 1 30); do
             pg_isready -h localhost -p 5432 -U logios && exit 0
             echo "Waiting for postgres... ($i/30)"
+            sleep 2
+          done
+          exit 1
+
+      - name: Wait for Neo4j to be ready
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf -u neo4j:test-password http://localhost:7474 > /dev/null 2>&1 && exit 0
+            echo "Waiting for neo4j... ($i/30)"
+            sleep 2
+          done
+          exit 1
+
+      - name: Wait for Qdrant to be ready
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:6333/healthz > /dev/null 2>&1 && exit 0
+            echo "Waiting for qdrant... ($i/30)"
             sleep 2
           done
           exit 1
