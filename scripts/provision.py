@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -61,6 +60,11 @@ def main() -> None:
         default=os.getenv("SECRET_KEY"),
         help="X-Secret-Key for owner setup (or set SECRET_KEY env var)",
     )
+    parser.add_argument(
+        "--save-env",
+        action="store_true",
+        help="Append AGENT_TOKEN and LOGIOS_URL to .env after provisioning",
+    )
     args = parser.parse_args()
 
     if not args.secret_key:
@@ -79,7 +83,7 @@ def main() -> None:
     print(f"[1/5] OTP received: {otp}")
 
     # Step 2: Complete owner setup
-    print(f"[2/5] Completing owner setup with OTP...")
+    print("[2/5] Completing owner setup with OTP...")
     data_encoded = urllib.parse.urlencode({"pending_token": pending_token, "otp": otp}).encode()
     req = urllib.request.Request(
         f"{base}/auth/verify-setup",
@@ -93,10 +97,10 @@ def main() -> None:
     print(f"[2/5] Owner created: {owner.get('email')}")
 
     # Step 3: Login to get access token
-    print(f"[3/5] Logging in to get access token...")
+    print("[3/5] Logging in to get access token...")
     login = _request("POST", f"{base}/auth/login", data={"email": args.email, "password": args.password})
     access_token = login["access_token"]
-    print(f"[3/5] Logged in.")
+    print("[3/5] Logged in.")
 
     # Step 4: Create agent token
     print(f"[4/5] Creating agent token '{args.agent_name}'...")
@@ -121,6 +125,34 @@ def main() -> None:
     print(f"    LOGIOS_URL={base}")
     print(f"    AGENT_TOKEN={agent_token}")
     print("=" * 60)
+
+    # Optionally persist to .env
+    if args.save_env:
+        env_path = ".env"
+        new_entries = {
+            "LOGIOS_URL": base,
+            "AGENT_TOKEN": agent_token,
+            "AGENT_ID": agent_id,
+        }
+        # Read existing keys
+        existing: dict[str, str] = {}
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if "=" in line:
+                        k, _, v = line.partition("=")
+                        existing[k] = v
+
+        # Merge and rewrite
+        for k, v in new_entries.items():
+            existing[k] = v
+
+        with open(env_path, "w") as f:
+            for k, v in existing.items():
+                f.write(f"{k}={v}\n")
+
+        print("\n  Saved to .env")
 
 
 if __name__ == "__main__":
