@@ -91,6 +91,10 @@ services:
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
       ACCESS_SECRET_KEY: ${ACCESS_SECRET_KEY:-dev-access-secret-key}
       EMAILS_ENABLED: "false"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+      OTEL_ENABLED: "true"
+      OTEL_TRACES_SAMPLER: parentbased_traceidratio
+      OTEL_TRACES_SAMPLER_ARG: "0.1"
     ports:
       - "8000:8000"
     depends_on:
@@ -108,6 +112,32 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  alloy:
+    image: grafana/alloy:v1.15.0
+    container_name: logios-alloy
+    restart: unless-stopped
+    command: run --stability.level=generally-available /etc/alloy/config.alloy
+    volumes:
+      - ./conf/otel/alloy:/etc/alloy:ro
+    environment:
+      TEMPO_ENDPOINT: ${TEMPO_ENDPOINT:-http://localhost:4317}
+      PROMETHEUS_REMOTE_WRITE_URL: ${PROMETHEUS_REMOTE_WRITE_URL:-}
+    ports:
+      # Alloy HTTP server (health, config, own metrics)
+      - "127.0.0.1:12345:12345"
+      # OTLP receivers (app pushes telemetry here)
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:12345/readyz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:

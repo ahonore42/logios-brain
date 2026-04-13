@@ -5,6 +5,10 @@ import os
 from celery import Celery
 
 from app import config
+from app import telemetry
+
+# Initialize OTel Celery instrumentation.
+telemetry.configure()
 
 celery_app = Celery(
     "logios",

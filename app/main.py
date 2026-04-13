@@ -16,11 +16,16 @@ from app.routes.graph import router as graph_router
 from app.routes.health import router as health_router
 from app.routes.hooks import router as hooks_router
 from app.routes.memory import router as memory_router
+from app.routes.metrics import router as metrics_router
 from app.routes.skills import router as skills_router
+from app import telemetry
 
 # Configure logging before the app starts.
 # Set JSON_LOGGING=true for production (structured JSON, includes request_id).
 configure_logging(json_format=os.getenv("JSON_LOGGING", "false").lower() == "true")
+
+# Initialize OTel tracing and Celery instrumentation (opt-in).
+telemetry.configure()
 
 
 @asynccontextmanager
@@ -40,11 +45,15 @@ app = FastAPI(title="Logios Brain", lifespan=lifespan)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(RequestLogMiddleware, logger=__import__("logging").getLogger("app"))
 
+# Apply FastAPI OTel instrumentation (excludes health and metrics endpoints).
+telemetry.instrument_app(app)
+
 app.include_router(auth_router)
 app.include_router(health_router)
 app.include_router(memory_router)
 app.include_router(skills_router)
 app.include_router(graph_router)
 app.include_router(hooks_router)
+app.include_router(metrics_router)
 
 app.mount("/mcp", mcp.streamable_http_app())
