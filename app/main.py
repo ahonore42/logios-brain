@@ -10,6 +10,7 @@ from app.auth import AuthMiddleware
 from app.routes.auth import router as auth_router
 from app.routes.graph import router as graph_router
 from app.routes.health import router as health_router
+from app.routes.hooks import router as hooks_router
 from app.routes.memory import router as memory_router
 from app.routes.skills import router as skills_router
 
@@ -35,5 +36,6 @@ app.include_router(health_router)
 app.include_router(memory_router)
 app.include_router(skills_router)
 app.include_router(graph_router)
+app.include_router(hooks_router)
 
 app.mount("/mcp", mcp.streamable_http_app())
