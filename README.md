@@ -350,6 +350,30 @@ Prerequisites on the server: Docker, Docker Compose, SSH access.
 
 ---
 
+## Documentation
+
+| Guide | Description |
+|---|---|
+| [`docs/connecting-agents.md`](docs/connecting-agents.md) | Connect an agent to Logios Brain — provisioning, auth, API usage |
+| [`docs/integrations.md`](docs/integrations.md) | Framework-specific integration libraries |
+
+### Architecture
+
+| Doc | Description |
+|---|---|
+| [`docs/architecture/memory-system.md`](docs/architecture/memory-system.md) | Three-tier memory model (working/episodic/semantic) |
+| [`docs/architecture/agent-memory.md`](docs/architecture/agent-memory.md) | How agents interact with each memory tier |
+| [`docs/architecture/evidence-layer.md`](docs/architecture/evidence-layer.md) | Provenance tracking for every generation |
+| [`docs/architecture/postgres.md`](docs/architecture/postgres.md) | PostgreSQL/pgvector schema and design |
+| [`docs/architecture/qdrant.md`](docs/architecture/qdrant.md) | Qdrant vector store configuration |
+| [`docs/architecture/neo4j.md`](docs/architecture/neo4j.md) | Neo4j graph structure and Cypher patterns |
+| [`docs/architecture/entity-extraction.md`](docs/architecture/entity-extraction.md) | LLM-based entity extraction pipeline |
+| [`docs/architecture/mcp.md`](docs/architecture/mcp.md) | MCP server interface |
+| [`docs/architecture/auth.md`](docs/architecture/auth.md) | Auth flow, token scopes, owner/agent separation |
+| [`docs/architecture/spacy.md`](docs/architecture/spacy.md) | spaCy NER preflight and graceful degradation |
+
+---
+
 ## Contributing
 
 Contributions are welcome. Please ensure `ruff check` and `mypy` pass before submitting a PR.
