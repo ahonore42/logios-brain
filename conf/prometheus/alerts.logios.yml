@@ -1,0 +1,110 @@
+groups:
+  - name: logios_memory
+    interval: 30s
+    rules:
+      - alert: LogiosHighMemoryCount
+        expr: logios_memory_count{agent_id!=""} > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Logios memory count unusually high"
+          description: "Agent {{ $labels.agent_id }} has {{ $value }} memories stored (threshold: 10000). Consider reviewing old or revoked memories."
+
+      - alert: LogiosNoMemories
+        expr: logios_memory_count{agent_id!=""} == 0
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "Logios no memories recorded"
+          description: "Agent {{ $labels.agent_id }} has zero stored memories. This is expected for new agents but may indicate a capture issue for established ones."
+
+  - name: logios_generations
+    interval: 30s
+    rules:
+      - alert: LogiosHighGenerationErrorRate
+        expr: |
+          sum(rate(logios_generation_total{agent_id!=""}[5m])) by (agent_id)
+          and
+          sum(rate(logios_errors_total{operation="record", error_type="validation"}[5m])) by (agent_id)
+          / sum(rate(logios_generation_total{agent_id!=""}[5m])) by (agent_id) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Logios generation validation error rate high"
+          description: "Agent {{ $labels.agent_id }} has >10% validation error rate on skill generations. Check evidence manifest formatting."
+
+  - name: logios_latency
+    interval: 30s
+    rules:
+      - alert: LogiosHighHTTPRequestLatency
+        expr: histogram_quantile(0.95, sum(rate(logios_http_request_latency_seconds_bucket[5m])) by (le, endpoint)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Logios HTTP request latency elevated"
+          description: "Endpoint {{ $labels.endpoint }} p95 latency is {{ $value | printf \"%.2f\" }}s (threshold: 2s)."
+
+      - alert: LogiosHighRetrievalLatency
+        expr: histogram_quantile(0.99, sum(rate(logios_retrieval_latency_seconds_bucket[5m])) by (le, operation)) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Logios retrieval latency elevated"
+          description: "Operation {{ $labels.operation }} p99 retrieval latency is {{ $value | printf \"%.2f\" }}s (threshold: 1s). Check Qdrant/Neo4j connectivity."
+
+  - name: logios_checkpoint
+    interval: 30s
+    rules:
+      - alert: LogiosNoCheckpointsFired
+        expr: |
+          sum(rate(logios_checkpoint_fired_total[30m])) by (agent_id) == 0
+          and
+          sum(logios_memory_count{agent_id!=""}) by (agent_id) > 100
+        for: 2h
+        labels:
+          severity: info
+        annotations:
+          summary: "No checkpoints fired in 2 hours for active agent"
+          description: "Agent {{ $labels.agent_id }} has memories but no checkpoints fired in 2 hours. Snapshot triggers may be misconfigured or disabled."
+
+  - name: logios_errors
+    interval: 30s
+    rules:
+      - alert: LogiosHighErrorRate
+        expr: |
+          sum(rate(logios_errors_total[5m])) by (operation)
+          / sum(rate(logios_http_request_latency_seconds_count[5m])) by (operation) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Logios error rate elevated"
+          description: "Operation {{ $labels.operation }} has {{ $value | printf \"%.2f\" }}% error rate (threshold: 5%). Investigate logs for trace_id correlation."
+
+      - alert: Logios5xxRateHigh
+        expr: |
+          sum(rate(logios_http_request_latency_seconds_count{status_code=~"5.."}[5m])) by (endpoint)
+          / sum(rate(logios_http_request_latency_seconds_count[5m])) by (endpoint) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Logios 5xx error rate elevated"
+          description: "Endpoint {{ $labels.endpoint }} has {{ $value | printf \"%.2f\" }}% 5xx rate (threshold: 1%). Check app logs for exceptions."
+
+  - name: logios_celery
+    interval: 30s
+    rules:
+      - alert: LogiosCeleryTaskLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(logios_celery_task_latency_seconds_bucket[5m])) by (le, task_name)) > 30
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Logios Celery task latency elevated"
+          description: "Task {{ $labels.task_name }} p95 latency is {{ $value | printf \"%.1f\" }}s (threshold: 30s). Long-running tasks may indicate queue backup."
