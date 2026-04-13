@@ -32,13 +32,17 @@ Built on four stores: **PostgreSQL** for the ledger, **Qdrant** for semantic ret
 
 ## Quick Start
 
-### 1. Clone and start infrastructure
+### 1. Clone and start everything
 
 ```bash
 git clone https://github.com/YOUR_HANDLE/logios-brain.git
 cd logios-brain
+cp .env.example .env
+# Edit .env with your credentials
 docker compose up -d
 ```
+
+Docker starts all five services (postgres, qdrant, neo4j, redis, app) and runs migrations automatically.
 
 Wait for all containers to be healthy:
 
@@ -46,40 +50,36 @@ Wait for all containers to be healthy:
 docker compose ps
 ```
 
-### 2. Configure environment
+### 2. Create an agent token
+
+The server needs a Bearer token for all API calls. Provision an owner account, then create an agent token:
 
 ```bash
-cp .env.example .env
-# Edit .env with your credentials
+# Get the OTP (emails disabled in default config)
+curl -X POST http://localhost:8000/auth/setup \
+  -H "X-Secret-Key: YOUR_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com", "password": "password"}'
+
+# Complete setup with the OTP from the response
+curl -X POST http://localhost:8000/auth/verify-setup \
+  -H "X-Secret-Key: YOUR_SECRET_KEY" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "pending_token=YOUR_TOKEN&otp=YOUR_OTP"
+
+# Log in to get an access token
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com", "password": "password"}'
+
+# Create an agent token (save the token field — shown only once)
+curl -X POST http://localhost:8000/auth/tokens \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent"}'
 ```
 
-At minimum you need:
-- `LLM_API_KEY` — from your LLM provider (NVIDIA NIM, OpenAI, Anthropic, or Gemini)
-- `NEO4J_PASSWORD` — generate with `openssl rand -hex 16`
-- `POSTGRES_PASSWORD` — generate with `openssl rand -hex 16`
-
-### 3. Run database migrations
-
-```bash
-uv sync
-alembic upgrade head
-```
-
-### 4. Start the server
-
-```bash
-uvicorn app.main:app --port 8000 --reload
-```
-
-### 5. Seed skills and test connectivity
-
-```bash
-# Seed skill templates
-python scripts/seed_skills.py
-
-# Test all store connections
-python scripts/test_connection.py
-```
+Use the agent `token` as the Bearer token in all subsequent API calls.
 
 Health check:
 
@@ -88,14 +88,16 @@ curl http://localhost:8000/health
 # {"status":"ok"}
 ```
 
+For the full connection guide including framework integrations, see [`docs/connecting-agents.md`](docs/connecting-agents.md).
+
 ---
 
 ## Architecture
 
 ```
-Client (Claude Code, agent, Telegram bot)
+Agent (Hermes, OpenClaw, Claude Code, any HTTP client)
            │
-           │  HTTP + X-Brain-Key auth
+           │  HTTP + Bearer token auth
            ▼
      FastAPI (app/)
      ┌────────────────────────────────┐
@@ -105,6 +107,11 @@ Client (Claude Code, agent, Telegram bot)
      │  /memories/identity            │
      │  /memories/forget              │
      │  /memories/digest              │
+     │  /hooks/trigger                │
+     │  /hooks/buffer                  │
+     │  /hooks/check                  │
+     │  /hooks/flush                  │
+     │  /hooks/snapshot               │
      │  /graph/recall                 │
      │  /graph/search                 │
      │  /skills/run                   │
@@ -123,7 +130,7 @@ Client (Claude Code, agent, Telegram bot)
             │
             ▼
          Redis
-     (Celery broker)
+     (Celery broker + server-side hooks buffer)
 ```
 
 ### The Four Stores
@@ -200,7 +207,7 @@ See [`docs/integrations.md`](docs/integrations.md) for the full guide.
 
 ## API Endpoints
 
-All endpoints except `/health` require `X-Brain-Key: YOUR_KEY` header or `?key=YOUR_KEY` query param.
+All endpoints except `/health` require `Authorization: Bearer YOUR_TOKEN` header.
 
 ### Memories
 
@@ -212,6 +219,16 @@ All endpoints except `/health` require `X-Brain-Key: YOUR_KEY` header or `?key=Y
 | `/memories/identity` | POST, GET, PATCH, DELETE | Owner-only identity memory management |
 | `/memories/forget` | POST | Revoke memories by ID or semantic query |
 | `/memories/digest` | GET | Memory digest: unused, low-relevance, recent checkpoints |
+
+### Hooks (server-side working memory)
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/hooks/trigger` | POST | Register/update a snapshot trigger |
+| `/hooks/buffer` | POST | Buffer a tool call result on the server |
+| `/hooks/check` | POST | Evaluate trigger; snapshot and clear if fired |
+| `/hooks/flush` | POST | Drain buffer without snapshotting |
+| `/hooks/snapshot` | POST | Force a checkpoint regardless of trigger |
 
 ### Graph
 
@@ -261,28 +278,31 @@ All endpoints except `/health` require `X-Brain-Key: YOUR_KEY` header or `?key=Y
 
 ```
 logios-brain/
-├── docker-compose.yml          # postgres, qdrant, neo4j, redis
+├── docker-compose.yml          # postgres, qdrant, neo4j, redis, app
+├── Dockerfile                  # App image — runs alembic migrations on start
 ├── conf/
 │   ├── neo4j.conf             # Neo4j config (strict_validation disabled before APOC)
-│   └── apoc.conf              # APOC plugin settings
-├── alembic/                   # Database migrations
+│   └── apoc.conf               # APOC plugin settings
+├── alembic/                    # Database migrations
 ├── alembic.ini
 ├── app/
 │   ├── main.py                # FastAPI entrypoint, route mounting
 │   ├── celery.py              # Celery app with Redis broker
 │   ├── config.py              # Environment variable resolver
-│   ├── dependencies.py        # verify_key() auth dependency
+│   ├── dependencies.py        # Auth dependencies (get_current_token, require_owner)
 │   ├── embeddings.py          # NVIDIA NIM embeddings (nvidia/nv-embed-v1)
 │   ├── entity_extraction.py   # NVIDIA NIM entity extraction (phi-3-mini)
 │   ├── tasks.py               # Celery tasks: upsert_qdrant, upsert_neo4j, extract_entities
 │   ├── models.py              # SQLAlchemy models
 │   ├── schemas.py             # Pydantic request/response schemas
 │   ├── routes/
-│   │   ├── health.py          # GET /health
+│   │   ├── health.py         # GET /health
+│   │   ├── auth.py           # /auth/* — setup, login, token management
 │   │   ├── memory.py         # /memories/* endpoints
+│   │   ├── hooks.py          # /hooks/* — server-side working memory
 │   │   ├── graph.py          # /graph/* endpoints
 │   │   └── skills.py         # /skills/* endpoints
-│   ├── hooks/                 # Client-side hook library (WorkingMemory, SnapshotTrigger)
+│   ├── hooks/                  # Client-side hook library (WorkingMemory, SnapshotTrigger)
 │   ├── integrations/          # Agent framework integrations (Hermes, OpenClaw, Pi, GoClaw, etc.)
 │   └── db/
 │       ├── qdrant.py         # Qdrant client + payload indexes
@@ -294,16 +314,13 @@ logios-brain/
 │           ├── transactions.py
 │           └── evidence.py   # EvidencePath, EvidenceStep, Evidence relations
 ├── docs/
-│   ├── architecture/         # System and agent memory architecture docs
-│   ├── setup/                 # Setup guides (Docker, Hetzner, backup)
-│   └── integrations.md        # Agent framework integration guide
+│   ├── architecture/          # System and agent memory architecture docs
+│   ├── integrations.md         # Agent framework integration guide
+│   └── connecting-agents.md   # Agent connection and provisioning guide
 ├── scripts/
-│   ├── seed_skills.py        # Seeds skill templates to Postgres
-│   └── test_connection.py     # Connectivity verification
-└── tests/
-    ├── conftest.py
-    ├── test_entity_extraction.py
-    └── test_entity_extraction_live.py
+│   ├── seed_skills.py         # Seeds skill templates to Postgres
+│   └── test_connection.py      # Connectivity verification
+└── tests/                     # pytest test suite
 ```
 
 ---
