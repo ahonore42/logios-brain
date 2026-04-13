@@ -14,6 +14,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     EXEMPT_PATHS = {
         "/health",
         "/health/ready",
+        "/metrics",
         "/docs",
         "/redoc",
         "/openapi.json",
