@@ -16,20 +16,24 @@ import json
 import textwrap
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import UUID
 
-import httpx
 import redis
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import REDIS_URL
+from app.db.database import get_db
 from app.dependencies import get_current_token
 from app.auth import AuthContext
+from app.routes.memory import _upsert_memory
 from app.schemas import (
     BufferRequest,
     BufferResponse,
     CheckRequest,
     CheckResponse,
     FlushResponse,
+    RememberRequest,
     SnapshotRequest,
     SnapshotResponse,
     TriggerConfig,
@@ -169,16 +173,17 @@ def buffer_entry(
 
 
 @router.post("/check", response_model=CheckResponse)
-def check_trigger(
+async def check_trigger(
     data: CheckRequest,
+    db: AsyncSession = Depends(get_db),
     _auth: AuthContext = Depends(get_current_token),
 ) -> CheckResponse:
     """
     Check whether the registered trigger has fired.
 
     Evaluates the trigger condition based on current_turn and token_percent.
-    If should_fire=True, also synthesizes the snapshot and POSTs it to
-    /memories/remember, then clears the buffer.
+    If should_fire=True, also synthesizes the snapshot and writes it directly
+    to the database via _upsert_memory, then clears the buffer.
 
     Call this after each agent turn. If should_fire=True, load the
     snapshot_content into context and call mark_fired on your client trigger.
@@ -245,8 +250,6 @@ def check_trigger(
     if annotation:
         r.delete(annotation_key)
 
-    # POST to /memories/remember using the internal API key approach
-    # We use httpx since we don't have access to the internal _upsert_memory
     tool_calls = [
         {"tool": e.get("tool_name", ""), "result_ref": e.get("raw_result_ref", "")}
         for e in entries
@@ -262,30 +265,18 @@ def check_trigger(
         "agent_annotation": annotation,
     }
 
-    payload = {
-        "content": content,
-        "source": "agent",
-        "type": "checkpoint",
-        "metadata": metadata,
-    }
-
-    # Get the Logios API key from auth context — use the agent/owner token
-    # The hooks router receives a bearer token; we forward it to /memories/remember
-    # For internal calls, we use the same auth mechanism
-    headers = {
-        "Content-Type": "application/json",
-    }
-
+    # Write directly to the database via _upsert_memory
     snapshot_memory_id: str | None = None
     try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(
-                "http://localhost:8000/memories/remember",
-                json=payload,
-                headers=headers,
-            )
-            if resp.status_code in (200, 201):
-                snapshot_memory_id = resp.json().get("id")
+        remember_req = RememberRequest(
+            content=content,
+            source="agent",
+            type="checkpoint",
+            session_id=UUID(data.session_id) if data.session_id else None,
+            metadata=metadata,
+        )
+        memory_out = await _upsert_memory(db, remember_req)
+        snapshot_memory_id = str(memory_out.id)
     except Exception:
         # Snapshot failed — still fire so the agent knows, but don't clear buffer
         pass
@@ -342,15 +333,16 @@ def flush_buffer(
 
 
 @router.post("/snapshot", response_model=SnapshotResponse)
-def force_snapshot(
+async def force_snapshot(
     data: SnapshotRequest,
+    db: AsyncSession = Depends(get_db),
     _auth: AuthContext = Depends(get_current_token),
 ) -> SnapshotResponse:
     """
     Force a snapshot regardless of trigger state.
 
-    Synthesizes all buffered entries into a checkpoint memory and POSTs
-    to /memories/remember. Clears the buffer after.
+    Synthesizes all buffered entries into a checkpoint memory and writes
+    it directly to the database. Clears the buffer after.
     """
     r = _redis()
     pattern = _buffer_pattern(data.session_id, data.agent_id)
@@ -388,26 +380,17 @@ def force_snapshot(
         "agent_annotation": annotation,
     }
 
-    payload = {
-        "content": content,
-        "source": "agent",
-        "type": "checkpoint",
-        "metadata": metadata,
-    }
-
-    headers = {"Content-Type": "application/json"}
     memory_id = None
-
     try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(
-                "http://localhost:8000/memories/remember",
-                json=payload,
-                headers=headers,
-            )
-            if resp.status_code in (200, 201):
-                result = resp.json()
-                memory_id = result.get("id")
+        remember_req = RememberRequest(
+            content=content,
+            source="agent",
+            type="checkpoint",
+            session_id=UUID(data.session_id) if data.session_id else None,
+            metadata=metadata,
+        )
+        memory_out = await _upsert_memory(db, remember_req)
+        memory_id = str(memory_out.id)
     except Exception:
         pass
 
