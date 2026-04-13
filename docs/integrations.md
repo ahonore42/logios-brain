@@ -50,7 +50,14 @@ sys.path.insert(0, "/path/to/logios-brain/app")
 
 ## Hermes Agent
 
-**Hermes** (NousResearch) uses a provider-based memory architecture. Register Logios as an external `MemoryManager` provider.
+**Hermes Agent** (NousResearch) uses a provider-based memory architecture.
+A `MemoryManager` coordinates one built-in provider + one external plugin.
+The built-in provider owns the static identity/instruction layer loaded into
+the system prompt at session start (~12k tokens). **It cannot be disabled.**
+
+The Logios external provider is **additive** — it adds episodic recall,
+working memory buffering, and per-turn context injection on top of the built-in
+layer, never replacing it.
 
 ### Install
 
@@ -61,9 +68,9 @@ pip install hermes-agent
 ### Connect
 
 ```python
-from app.integrations.hermes import connect
+from app.integrations.hermes import LogiosMemoryProvider
 
-memory_manager = connect(
+provider = LogiosMemoryProvider(
     api_base_url="http://localhost:8000",
     api_key="tok_your_api_key",
     session_id="unique-session-id",
@@ -72,23 +79,62 @@ memory_manager = connect(
     snapshot_threshold=20,
 )
 
-# Register with Hermes
-from hermes import HermesAgent
-agent = HermesAgent(external_memory_manager=memory_manager)
+# Register with Hermes Agent
+memory_manager.add_provider(provider)
 ```
 
-### What happens
+Or using the convenience factory:
 
-| Hermes event | Logios call |
+```python
+from app.integrations.hermes import connect
+
+provider = connect(
+    api_base_url="http://localhost:8000",
+    api_key="tok_your_api_key",
+    session_id="unique-session-id",
+    agent_id="unique-agent-id",
+    redis_url="redis://localhost:6379",
+    snapshot_threshold=20,
+)
+memory_manager.add_provider(provider)
+```
+
+### Memory lifecycle
+
+| Hermes event | What Logios does |
 |---|---|
-| `on_turn_start()` | `POST /memories/context` → injects identity + episodic memories |
-| `on_session_end()` | Flushes working memory as `type=checkpoint` via `POST /memories/remember` |
-| `on_pre_compress()` | `POST /memories/search` → provides memories for compression context |
-| Tool call buffered | Stored in Redis; auto-snapshot after `snapshot_threshold` calls |
+| `initialize()` | Connect Redis, warm up working memory buffer |
+| `prefetch(query)` | Fetch identity + episodic memories → inject as context before next API call |
+| `queue_prefetch(query)` | Background recall for the turn after next |
+| `sync_turn(user, assistant)` | Buffer turn summary in Redis; auto-snapshot when threshold hit |
+| `on_turn_start()` | Track turn number |
+| `on_session_end()` | Flush working memory as a checkpoint |
+| `on_pre_compress()` | Search memories → contribute to compression summary |
+| `on_memory_write()` | Mirror Hermes built-in memory writes to Logios |
+| `shutdown()` | Flush any remaining working memory on exit |
+
+### Why no tools?
+
+Logios runs as a **context-only provider** — `get_tool_schemas()` returns `[]`.
+All memory operations happen automatically behind the scenes via `prefetch()`
+and `sync_turn()`. The agent gets episodic context injected without calling any
+tools explicitly.
 
 ### Snapshot threshold
 
-Controls how many tool calls fire before Logios writes a checkpoint memory. Default is 20. Lower values = more memories, higher values = less noise.
+Controls how many tool calls fire before Logios writes a checkpoint memory to
+Postgres + Qdrant. Default is 20. Lower values = more memories captured; higher
+values = less noise in the memory store.
+
+### Redis requirement
+
+Working memory buffering requires Redis. Make sure it's available:
+
+```bash
+docker compose up -d redis
+```
+
+Or provide the `redis_url` parameter pointing to your Redis instance.
 
 ---
 
