@@ -109,11 +109,11 @@ When the trigger fires, the hook library synthesizes buffered entries into one m
 
 | Trigger | Description |
 |---------|-------------|
-| `token_threshold` | Agent framework measures context length; fires at 80% of limit |
+| `token` | Agent framework measures context length; fires at N% of limit |
 | `call_count` | Fires every N tool calls regardless of token count |
-| `time_based` | Fires if T minutes have passed since last snapshot |
+| `time_based` | Fires if N minutes have passed since last snapshot |
 
-The trigger logic lives in the hook library, not in Logios. Logios receives the write.
+Trigger logic lives in the hook library client (`SnapshotTrigger`) and is also available server-side via `POST /hooks/check`.
 
 **Agent annotation** is optional. The hook library can prompt the agent (via the agent framework) to provide a one-line summary before the snapshot fires. If provided, it goes into `metadata.agent_annotation`. If the agent doesn't respond within a timeout, the snapshot fires without it.
 
@@ -176,24 +176,54 @@ Agent answers from its own evidence
 
 ## Hook Library
 
-The hook library (`app/mcp/hooks/`) is the client-side package agents import to use Logios as memory backend.
+The hook library (`app/hooks/`) provides both a client-side Python package and a server-side HTTP API for working memory:
 
-### Interface
+### Client-side package (`app/hooks/`)
 
 ```python
-class MemoryHooks:
-    def on_tool_result(self, tool_name: str, result: ToolResult) -> None:
-        """Buffer a tool result in Redis. Server-side, agent cannot prevent."""
+from app.hooks import WorkingMemory, SnapshotTrigger, GenerationRecord, record_generation
 
-    def get_context(self, session_id: str, query: str, top_k: int = 8) -> list[Memory]:
-        """Called at turn start. Retrieves episodic + semantic memories, injects into prompt."""
+working = WorkingMemory(redis_url=REDIS_URL, session_id="sess_abc123", agent_id="agent_xyz")
+trigger = SnapshotTrigger(mode="call_count", threshold=20, working_memory=working)
 
-    def forget(self, pattern: str) -> None:
-        """Add negative filter to retrieval. Only affects future get_context() calls."""
+# After each tool call
+working.buffer("read_file", summarize(result), embedding)
 
-    def annotate(self, annotation: str) -> None:
-        """Provide a one-line summary before next snapshot fires. Optional."""
+# Check if trigger fired
+if trigger.should_fire(current_turn=14):
+    working.snapshot(api_base_url="http://localhost:8000", api_key=AGENT_TOKEN, trigger_mode="call_count")
+    trigger.mark_fired(14)
+
+# Record a generation with evidence
+record_generation(
+    api_base_url="http://localhost:8000",
+    api_key=AGENT_TOKEN,
+    record=GenerationRecord(skill_name="analysis", output=output, model="...", ...),
+)
 ```
+
+### Server-side HTTP API (`POST /hooks/*`)
+
+Agents that don't want to run their own Redis can use the server-side hooks API instead:
+
+```bash
+# Register a trigger
+POST /hooks/trigger  {session_id, agent_id, mode, threshold}
+
+# Buffer a tool result
+POST /hooks/buffer  {session_id, agent_id, tool_name, result_summary, turn_index}
+
+# Check if trigger fired — synthesizes snapshot and POSTs to /memories/remember if so
+POST /hooks/check  {session_id, agent_id, current_turn, token_percent}
+
+# Drain buffer without snapshotting
+POST /hooks/flush  {session_id, agent_id}
+
+# Force a snapshot regardless of trigger
+POST /hooks/snapshot  {session_id, agent_id, turn_count, annotation}
+```
+
+This allows fully server-side working memory — the agent only needs an HTTP client and a Bearer token.
 
 ### Registration
 
@@ -247,25 +277,23 @@ The human reviews and decides whether to create or update `type='identity'` memo
 ```
 Agent calls tool
     ↓
-on_tool_result() — result buffered in Redis (working memory)
+working.buffer(tool_name, result_summary, embedding)
     ↓
 Trigger fires (token %, call count, or time)
     ↓
-Hook library calls POST /memories/remember
+POST /memories/remember
     ├── Writes to Postgres (ledger)
     ├── Writes to Qdrant (embedding)
     ├── Writes EvidencePath to Neo4j
-    └── Dispatches extract_entities Celery task
-            ↓
-            Entity nodes written to Neo4j (semantic memory)
+    └── Celery: extract_entities → Neo4j (semantic memory)
     ↓
 Redis working memory buffer cleared
     ↓
 Agent's next turn:
-    get_context(session_id, query)
+    POST /memories/context
+        ├── Identity: always loaded first
         ├── Episodic: Qdrant search on session memories → top-K
-        ├── Semantic: Neo4j graph traversal from query entities
-        └── Returns merged context for prompt injection
+        └── Semantic: Neo4j graph traversal from query entities
     ↓
 Agent generates output
     ↓
@@ -281,6 +309,5 @@ Agent loads identity memories on session start — improved behavior
 ## What Logios Does Not Do
 
 - **No agent self-modification** — the agent cannot write `type='identity'` memories; only the owner can create or update them
-- **No checkpoint API callable by the agent** — snapshots fire server-side only
 - **No automatic behavioral adaptation** — improvements require human review
 - **No trust placed in the agent's memory quality** — the server owns what gets written

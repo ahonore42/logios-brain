@@ -65,8 +65,9 @@ Built atomically in Neo4j when `POST /skills/record` is called.
   timestamp: string
 })
 
-(:EvidenceStep { id: string, step_type: string, order: int })
+(:EvidenceStep { id: string, step_type: string, order: int, content: string | null })
 -- step_types: "read_memory", "query_policy", "merge_context", "generate_output"
+-- content optionally captures chain-of-thought for generate_output
 
 (:Output { id: string, tenant_id: string, type: string, timestamp: string })
 (:Agent { id: string, tenant_id: string, name: string, role: string, model_used: string })
@@ -130,6 +131,7 @@ add_evidence_step(
     step_id: str,
     step_type: str,   # "read_memory", "query_policy", "merge_context", "generate_output"
     order: int,
+    content: str | None = None,  # optional chain-of-thought (used for generate_output)
 ) -> None
 
 # 3. Link to Output and Agent
@@ -175,14 +177,14 @@ This ensures that `POST /graph/search` always returns the current state of a fac
 
 ## Evidence Step Types
 
-| Step | `step_type` | Meaning |
-|---|---|---|
-| 0 | `read_memory` | Agent retrieved top-k memories via vector search |
-| 1 | `query_policy` | Agent checked applicable policies or constraints |
-| 2 | `merge_context` | Agent combined retrieved memories into context |
-| 3 | `generate_output` | Agent produced the final output |
+| Step | `step_type` | Meaning | Content captured |
+|---|---|---|---|
+| 0 | `read_memory` | Agent retrieved top-k memories via vector search | — |
+| 1 | `query_policy` | Agent checked applicable policies or constraints | — |
+| 2 | `merge_context` | Agent combined retrieved memories into context | — |
+| 3 | `generate_output` | Agent produced the final output | Chain-of-thought (optional) |
 
-The `NEXT` chain enforces ordering: step 0 must happen before step 1, etc.
+The `NEXT` chain enforces ordering: step 0 must happen before step 1, etc. The `content` field on `generate_output` captures the agent's reasoning when available.
 
 ---
 
