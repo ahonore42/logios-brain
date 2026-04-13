@@ -71,10 +71,17 @@ async def setup_owner(
     subject, html_content = generate_setup_otp_email(body.email, otp)
     send_email(email_to=body.email, subject=subject, html_content=html_content)
 
-    return {
+    response: dict[str, str] = {
         "pending_token": pending_token,
         "message": "Verification code sent to email. Complete setup within 10 minutes.",
     }
+
+    # When emails are disabled (dev mode), return the OTP directly so setup can complete
+    if not config.EMAILS_ENABLED:
+        response["otp"] = otp
+        response["message"] = "Emails disabled — use the OTP below to complete setup."
+
+    return response
 
 
 @router.post(
