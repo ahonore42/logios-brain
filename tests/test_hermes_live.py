@@ -2,9 +2,14 @@
 
 Run with: uv run pytest tests/test_hermes_live.py -v
 Requires: docker compose up (postgres, qdrant, redis, app)
+
+These are live integration tests — skipped in CI.
 """
 
 import pytest
+import os
+
+SKIP_LIVE = os.environ.get("CI", "").lower() in ("1", "true", "yes")
 
 API_BASE = "http://localhost:8000"
 SESSION_ID = "live-hermes-test"
@@ -38,6 +43,7 @@ def provider():
     return provider
 
 
+@pytest.mark.skipif(SKIP_LIVE, reason="Live integration test — requires running Docker services")
 class TestHermesLiveIntegration:
     def test_is_available(self, provider):
         assert provider.is_available() is True
