@@ -1,15 +1,12 @@
 // Grafana Alloy config for Logios Brain
 //
-// Receives OTLP traces/metrics from the app container,
-// scrapes Prometheus /metrics, and forwards to Tempo (traces)
-// and Prometheus (metrics backend).
+// Receives OTLP traces/metrics from the app container and forwards
+// traces to Tempo. Metrics are forwarded to Prometheus when
+// PROMETHEUS_REMOTE_WRITE_URL is set.
 //
 // Environment variables:
-//   TEMPO_ENDPOINT              — OTLP gRPC endpoint for traces  (default: localhost:4317)
+//   TEMPO_ENDPOINT              — OTLP gRPC endpoint for traces (default: localhost:4317)
 //   PROMETHEUS_REMOTE_WRITE_URL — Remote write URL for metrics (default: disabled)
-
-// ── OTLP Receiver ───────────────────────────────────────────────────────────────
-// Receives spans and metrics pushed by the Logios app via OTLP HTTP
 
 otelcol.receiver.otlp "default" {
   http { }
@@ -17,38 +14,13 @@ otelcol.receiver.otlp "default" {
 
   output {
     traces  = [otelcol.exporter.otlp.tempo.input]
-    metrics = [prometheus.remote_write.prometheus.input]
+    metrics = []
   }
 }
-
-// ── Prometheus Scrape ────────────────────────────────────────────────────────────
-// Scrapes /metrics from the app container every 15s
-
-prometheus.scrape "logios" {
-  targets = [{
-    __address__ = "app:8000",
-  }]
-
-  scrape_interval = "15s"
-  scrape_timeout  = "10s"
-  metrics_path    = "/metrics"
-
-  forward_to = [prometheus.remote_write.prometheus]
-}
-
-// ── Trace Export → Tempo ────────────────────────────────────────────────────────
 
 otelcol.exporter.otlp "tempo" {
   client {
     endpoint = sys.env("TEMPO_ENDPOINT")
     tls { }
-  }
-}
-
-// ── Metrics Export → Prometheus ──────────────────────────────────────────────────
-
-prometheus.remote_write "prometheus" {
-  endpoint {
-    url = sys.env("PROMETHEUS_REMOTE_WRITE_URL")
   }
 }
